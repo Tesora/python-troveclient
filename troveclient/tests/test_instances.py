@@ -62,6 +62,13 @@ class InstanceTest(testtools.TestCase):
         self.instance.restart()
         self.assertEqual(1, db_restart_mock.call_count)
 
+    def test_detach_replication(self):
+        db_detach_mock = mock.Mock(return_value=None)
+        self.instance.manager.detach_replication = db_detach_mock
+        self.instance.id = 1
+        self.instance.detach_replication()
+        self.assertEqual(1, db_detach_mock.call_count)
+
 
 class InstancesTest(testtools.TestCase):
 
@@ -195,6 +202,12 @@ class InstancesTest(testtools.TestCase):
         self.instances._get = mock.Mock(side_effect=side_effect_func)
         self.assertEqual(('/instances/instance1/configuration', 'instance'),
                          self.instances.configuration(1))
+
+    def test_detach_replication(self):
+        self._set_action_mock()
+        self.instances.detach_replication(123)
+        self.assertEqual(123, self._instance_id)
+        self.assertEqual({'detach_replication': {}}, self._body)
 
 
 class InstanceStatusTest(testtools.TestCase):

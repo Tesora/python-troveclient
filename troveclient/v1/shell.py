@@ -328,7 +328,16 @@ def do_restart(cs, args):
     cs.instances.restart(args.instance)
 
 
+@utils.arg('instance',
+           metavar='<instance>',
+           type=str,
+           help='ID of the instance.')
+def do_detach_replication(cs, args):
+    """Detaches an instance from its replication master."""
+    cs.instances.detach_replication(args.instance)
+
 # Backup related commands
+
 
 @utils.arg('backup', metavar='<backup>', help='ID of the backup.')
 @utils.service_type('database')

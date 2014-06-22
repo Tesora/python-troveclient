@@ -38,6 +38,10 @@ class Instance(base.Resource):
         """Restart the database instance."""
         self.manager.restart(self.id)
 
+    def detach_replication(self):
+        """Detach the database from its replication master."""
+        self.manager.detach_replication(self.id)
+
 
 class Instances(base.ManagerWithFind):
     """Manage :class:`Instance` resources."""
@@ -160,6 +164,11 @@ class Instances(base.ManagerWithFind):
         :param instance_id: The :class:`Instance` (or its ID) to share onto.
         """
         body = {'restart': {}}
+        self._action(instance_id, body)
+
+    def detach_replication(self, instance_id):
+        """Detach the database from its replication master."""
+        body = {'detach_replication': {}}
         self._action(instance_id, body)
 
     def configuration(self, instance):
