@@ -249,7 +249,7 @@ def do_update(cs, args):
            default=None,
            help='ID of the configuration group to attach to the instance.')
 @utils.arg('--replica_of',
-           metavar='<master_id>',
+           metavar='<source_id>',
            default=None,
            help='ID of an existing instance to replicate from.')
 @utils.service_type('database')
