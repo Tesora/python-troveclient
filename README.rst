@@ -1,4 +1,5 @@
 Fork of https://github.com/openstack/python-troveclient
+Brian was here, again
 
 Python bindings to the OpenStack Trove API
 ===========================================
