@@ -22,7 +22,7 @@ pull requests.
 .. _Github: https://github.com/openstack/python-troveclient
 .. _Releases: https://github.com/openstack/python-troveclient/releases
 .. _Launchpad: https://launchpad.net/python-troveclient
-.. _Gerrit: http://wiki.openstack.org/GerritWorkflow
+.. _Gerrit: http://docs.openstack.org/infra/manual/developers.html#development-workflow
 
 This code a fork of `Jacobian's python-cloudservers`__ If you need API support
 for the Rackspace API solely or the BSD license, you should use that repository.
@@ -56,6 +56,8 @@ variables as well::
 Since Keystone can return multiple regions in the Service Catalog, you
 can specify the one you want with ``--os-region-name`` (or
 ``export OS_REGION_NAME``). It defaults to the first in the list returned.
+
+Argument ``--profile`` is available only when the osprofiler lib is installed.
 
 You'll find complete documentation on the shell by running
 ``trove help``::
@@ -186,6 +188,15 @@ You'll find complete documentation on the shell by running
       --retries <retries>             Number of retries.
       --json, --os-json-output        Output JSON instead of prettyprint. Defaults
                                       to env[OS_JSON_OUTPUT].
+      --profile HMAC_KEY              HMAC key to use for encrypting context data
+                                      for performance profiling of operation. This
+                                      key should be the value of HMAC key
+                                      configured in osprofiler middleware in
+                                      Trove, it is specified in paste configure
+                                      file at /etc/trove/api-paste.ini. Without
+                                      key the profiling will not be triggered even
+                                      if osprofiler is enabled on server side.
+                                      Defaults to env[OS_PROFILE_HMACKEY].
 
 Python API
 ----------

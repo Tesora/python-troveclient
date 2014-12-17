@@ -21,6 +21,7 @@ Command-line interface to the OpenStack Trove API.
 from __future__ import print_function
 
 import argparse
+import getpass
 import glob
 import imp
 import itertools
@@ -32,21 +33,30 @@ import sys
 import pkg_resources
 import six
 
-import troveclient
-import troveclient.extension
+from keystoneclient.auth.identity.generic import password
+from keystoneclient.auth.identity.generic import token
+from keystoneclient.auth.identity import v3 as identity
+from keystoneclient import session as ks_session
 
+import troveclient
+import troveclient.auth_plugin
 from troveclient import client
+import troveclient.extension
 from troveclient.openstack.common.apiclient import exceptions as exc
 from troveclient.openstack.common import gettextutils as gtu
+from troveclient.openstack.common.gettextutils import _  # noqa
+from troveclient.openstack.common import importutils
 from troveclient.openstack.common import strutils
 from troveclient import utils
 from troveclient.v1 import shell as shell_v1
+
 
 DEFAULT_OS_DATABASE_API_VERSION = "1.0"
 DEFAULT_TROVE_ENDPOINT_TYPE = 'publicURL'
 DEFAULT_TROVE_SERVICE_TYPE = 'database'
 
 logger = logging.getLogger(__name__)
+osprofiler_profiler = importutils.try_import("osprofiler.profiler")
 
 
 class TroveClientArgumentParser(argparse.ArgumentParser):
@@ -98,52 +108,11 @@ class OpenStackTroveShell(object):
                                               default=False),
                             help="Print debugging output.")
 
-        parser.add_argument('--os-username',
-                            metavar='<auth-user-name>',
-                            default=utils.env('OS_USERNAME',
-                                              'TROVE_USERNAME'),
-                            help='Defaults to env[OS_USERNAME].')
-        parser.add_argument('--os_username',
-                            help=argparse.SUPPRESS)
-
-        parser.add_argument('--os-password',
-                            metavar='<auth-password>',
-                            default=utils.env('OS_PASSWORD',
-                                              'TROVE_PASSWORD'),
-                            help='Defaults to env[OS_PASSWORD].')
-        parser.add_argument('--os_password',
-                            help=argparse.SUPPRESS)
-
-        parser.add_argument('--os-tenant-name',
-                            metavar='<auth-tenant-name>',
-                            default=utils.env('OS_TENANT_NAME',
-                                              'TROVE_PROJECT_ID'),
-                            help='Defaults to env[OS_TENANT_NAME].')
-        parser.add_argument('--os_tenant_name',
-                            help=argparse.SUPPRESS)
-
-        parser.add_argument('--os-tenant-id',
-                            metavar='<auth-tenant-id>',
-                            default=utils.env('OS_TENANT_ID',
-                                              'TROVE_TENANT_ID'),
-                            help='Defaults to env[OS_TENANT_ID].')
-        parser.add_argument('--os_tenant_id',
-                            help=argparse.SUPPRESS)
-
-        parser.add_argument('--os-auth-url',
-                            metavar='<auth-url>',
-                            default=utils.env('OS_AUTH_URL',
-                                              'TROVE_URL'),
-                            help='Defaults to env[OS_AUTH_URL].')
-        parser.add_argument('--os_auth_url',
-                            help=argparse.SUPPRESS)
-
-        parser.add_argument('--os-region-name',
-                            metavar='<region-name>',
-                            default=utils.env('OS_REGION_NAME',
-                                              'TROVE_REGION_NAME'),
-                            help='Defaults to env[OS_REGION_NAME].')
-        parser.add_argument('--os_region_name',
+        parser.add_argument('--os-auth-system',
+                            metavar='<auth-system>',
+                            default=utils.env('OS_AUTH_SYSTEM'),
+                            help='Defaults to env[OS_AUTH_SYSTEM].')
+        parser.add_argument('--os_auth_system',
                             help=argparse.SUPPRESS)
 
         parser.add_argument('--service-type',
@@ -196,19 +165,6 @@ class OpenStackTroveShell(object):
         parser.add_argument('--os_database_api_version',
                             help=argparse.SUPPRESS)
 
-        parser.add_argument('--os-cacert',
-                            metavar='<ca-certificate>',
-                            default=utils.env('OS_CACERT', default=None),
-                            help='Specify a CA bundle file to use in '
-                            'verifying a TLS (https) server certificate. '
-                            'Defaults to env[OS_CACERT].')
-
-        parser.add_argument('--insecure',
-                            default=utils.env('TROVECLIENT_INSECURE',
-                                              default=False),
-                            action='store_true',
-                            help=argparse.SUPPRESS)
-
         parser.add_argument('--retries',
                             metavar='<retries>',
                             type=int,
@@ -223,7 +179,63 @@ class OpenStackTroveShell(object):
                             help='Output JSON instead of prettyprint. '
                                  'Defaults to env[OS_JSON_OUTPUT].')
 
+        if osprofiler_profiler:
+            parser.add_argument('--profile',
+                                metavar='HMAC_KEY',
+                                default=utils.env('OS_PROFILE_HMACKEY',
+                                                  default=None),
+                                help='HMAC key to use for encrypting context '
+                                'data for performance profiling of operation. '
+                                'This key should be the value of HMAC key '
+                                'configured in osprofiler middleware in '
+                                'Trove, it is specified in paste '
+                                'configure file at /etc/trove/api-paste.ini. '
+                                'Without key the profiling will not be '
+                                'triggered even if osprofiler is enabled '
+                                'on server side. '
+                                'Defaults to env[OS_PROFILE_HMACKEY].')
+
+        self._append_global_identity_args(parser)
+
+        # The auth-system-plugins might require some extra options
+        troveclient.auth_plugin.load_auth_system_opts(parser)
+
         return parser
+
+    def _append_global_identity_args(self, parser):
+        # Register CLI identity related arguments
+
+        # Use Keystoneclient API to register common V3 CLI arguments
+        ks_session.Session.register_cli_options(parser)
+        identity.Password.register_argparse_arguments(parser)
+
+        parser.add_argument('--os-tenant-name',
+                            metavar='<auth-tenant-name>',
+                            default=utils.env('OS_TENANT_NAME'),
+                            help='Tenant to request authorization on. '
+                                 'Defaults to env[OS_TENANT_NAME].')
+        parser.add_argument('--os_tenant_name',
+                            help=argparse.SUPPRESS)
+
+        parser.add_argument('--os-tenant-id',
+                            metavar='<tenant-id>',
+                            default=utils.env('OS_TENANT_ID'),
+                            help='Tenant to request authorization on. '
+                                 'Defaults to env[OS_TENANT_ID].')
+        parser.add_argument('--os_tenant_id',
+                            help=argparse.SUPPRESS)
+
+        parser.add_argument('--os-auth-token',
+                            default=utils.env('OS_AUTH_TOKEN'),
+                            help='Defaults to env[OS_AUTH_TOKEN]')
+
+        parser.add_argument('--os-region-name',
+                            metavar='<region-name>',
+                            default=utils.env('OS_REGION_NAME'),
+                            help='Specify the region to use. '
+                                 'Defaults to env[OS_REGION_NAME].')
+        parser.add_argument('--os_region_name',
+                            help=argparse.SUPPRESS)
 
     def get_subcommand_parser(self, version):
         parser = self.get_base_parser()
@@ -334,17 +346,19 @@ class OpenStackTroveShell(object):
         if not debug:
             return
 
-        streamhandler = logging.StreamHandler()
         streamformat = "%(levelname)s (%(module)s:%(lineno)d) %(message)s"
-        streamhandler.setFormatter(logging.Formatter(streamformat))
-        logger.setLevel(logging.DEBUG)
-        logger.addHandler(streamhandler)
+        logging.basicConfig(level=logging.DEBUG,
+                            format=streamformat)
 
     def main(self, argv):
         # Parse args once to find version and debug settings
         parser = self.get_base_parser()
         (options, args) = parser.parse_known_args(argv)
         self.setup_debugging(options.debug)
+        self.options = options
+
+        # Discover available auth plugins
+        troveclient.auth_plugin.discover_auth_systems()
 
         # build available subcommands based on version
         self.extensions = self._discover_extensions(
@@ -370,17 +384,25 @@ class OpenStackTroveShell(object):
             self.do_bash_completion(args)
             return 0
 
-        (os_username, os_password, os_tenant_name, os_auth_url,
-         os_region_name, os_tenant_id, endpoint_type, insecure,
-         service_type, service_name, database_service_name,
-         cacert, bypass_url) = (
-             args.os_username, args.os_password,
-             args.os_tenant_name, args.os_auth_url,
-             args.os_region_name, args.os_tenant_id,
-             args.endpoint_type, args.insecure,
-             args.service_type, args.service_name,
-             args.database_service_name,
-             args.os_cacert, args.bypass_url)
+        os_username = args.os_username
+        os_password = args.os_password
+        os_tenant_name = args.os_tenant_name
+        os_auth_url = args.os_auth_url
+        os_region_name = args.os_region_name
+        os_tenant_id = args.os_tenant_id
+        os_auth_system = args.os_auth_system
+        endpoint_type = args.endpoint_type
+        insecure = args.insecure
+        service_type = args.service_type
+        service_name = args.service_name
+        database_service_name = args.database_service_name
+        cacert = args.os_cacert
+        bypass_url = args.bypass_url
+
+        if os_auth_system and os_auth_system != "keystone":
+            auth_plugin = troveclient.auth_plugin.load_plugin(os_auth_system)
+        else:
+            auth_plugin = None
 
         if not endpoint_type:
             endpoint_type = DEFAULT_TROVE_ENDPOINT_TYPE
@@ -393,35 +415,82 @@ class OpenStackTroveShell(object):
         # for os_username or os_password but for compatibility it is not.
 
         if not utils.isunauthenticated(args.func):
-            if not os_username:
-                raise exc.CommandError(
-                    "You must provide a username "
-                    "via either --os-username or env[OS_USERNAME]")
+
+            if auth_plugin:
+                auth_plugin.parse_opts(args)
+
+            if not auth_plugin or not auth_plugin.opts:
+                if not os_username:
+                    raise exc.CommandError(
+                        "You must provide a username "
+                        "via either --os-username or env[OS_USERNAME]")
 
             if not os_password:
-                raise exc.CommandError("You must provide a password "
-                                       "via either --os-password or via "
-                                       "env[OS_PASSWORD]")
-
-            if not (os_tenant_name or os_tenant_id):
-                raise exc.CommandError("You must provide a tenant_id "
-                                       "via either --os-tenant-id or "
-                                       "env[OS_TENANT_ID]")
+                os_password = getpass.getpass()
 
             if not os_auth_url:
-                raise exc.CommandError(
-                    "You must provide an auth url "
-                    "via either --os-auth-url or env[OS_AUTH_URL]")
+                if os_auth_system and os_auth_system != 'keystone':
+                    os_auth_url = auth_plugin.get_auth_url()
 
-        if not (os_tenant_name or os_tenant_id):
+        # V3 stuff
+        project_info_provided = (self.options.os_tenant_name or
+                                 self.options.os_tenant_id or
+                                (self.options.os_project_name and
+                                 (self.options.os_project_domain_name or
+                                  self.options.os_project_domain_id)) or
+                                 self.options.os_project_id)
+
+        if (not project_info_provided):
             raise exc.CommandError(
-                "You must provide a tenant_id "
-                "via either --os-tenant-id or env[OS_TENANT_ID]")
+                _("You must provide a tenant_name, tenant_id, "
+                  "project_id or project_name (with "
+                  "project_domain_name or project_domain_id) via "
+                  "  --os-tenant-name (env[OS_TENANT_NAME]),"
+                  "  --os-tenant-id (env[OS_TENANT_ID]),"
+                  "  --os-project-id (env[OS_PROJECT_ID])"
+                  "  --os-project-name (env[OS_PROJECT_NAME]),"
+                  "  --os-project-domain-id "
+                  "(env[OS_PROJECT_DOMAIN_ID])"
+                  "  --os-project-domain-name "
+                  "(env[OS_PROJECT_DOMAIN_NAME])"))
 
         if not os_auth_url:
-            raise exc.CommandError(
-                "You must provide an auth url "
-                "via either --os-auth-url or env[OS_AUTH_URL]")
+            raise exc.CommandError("You must provide an auth url "
+                                   "via either --os-auth-url or "
+                                   "env[OS_AUTH_URL] or specify an "
+                                   "auth_system which defines a default "
+                                   "url with --os-auth-system or "
+                                   "env[OS_AUTH_SYSTEM]")
+
+        use_session = True
+        if auth_plugin or bypass_url:
+            use_session = False
+
+        keystone_session = None
+        keystone_auth = None
+        if use_session:
+                project_id = args.os_project_id or args.os_tenant_id
+                project_name = args.os_project_name or args.os_tenant_name
+
+                keystone_session = (ks_session.Session.
+                                    load_from_cli_options(args))
+                keystone_auth = self._get_keystone_auth(
+                    keystone_session,
+                    args.os_auth_url,
+                    username=args.os_username,
+                    user_id=args.os_user_id,
+                    user_domain_id=args.os_user_domain_id,
+                    user_domain_name=args.os_user_domain_name,
+                    password=args.os_password,
+                    auth_token=args.os_auth_token,
+                    project_id=project_id,
+                    project_name=project_name,
+                    project_domain_id=args.os_project_domain_id,
+                    project_domain_name=args.os_project_domain_name)
+
+        profile = osprofiler_profiler and options.profile
+        if profile:
+            osprofiler_profiler.init(options.profile)
 
         self.cs = client.Client(options.os_database_api_version, os_username,
                                 os_password, os_tenant_name, os_auth_url,
@@ -435,17 +504,25 @@ class OpenStackTroveShell(object):
                                 retries=options.retries,
                                 http_log_debug=args.debug,
                                 cacert=cacert,
-                                bypass_url=bypass_url)
+                                bypass_url=bypass_url,
+                                auth_system=os_auth_system,
+                                auth_plugin=auth_plugin,
+                                session=keystone_session,
+                                auth=keystone_auth)
 
         try:
             if not utils.isunauthenticated(args.func):
-                self.cs.authenticate()
+                # If Keystone is used, authentication is handled as
+                # part of session.
+                if not use_session:
+                    self.cs.authenticate()
         except exc.Unauthorized:
             raise exc.CommandError("Invalid OpenStack Trove credentials.")
         except exc.AuthorizationFailure:
             raise exc.CommandError("Unable to authorize user")
 
         endpoint_api_version = self.cs.get_database_api_version_from_endpoint()
+
         if endpoint_api_version != options.os_database_api_version:
             msg = (("Database API version is set to %s "
                     "but you are accessing a %s endpoint. "
@@ -461,7 +538,14 @@ class OpenStackTroveShell(object):
         else:
             utils.json_output = False
 
-        args.func(self.cs, args)
+        try:
+            args.func(self.cs, args)
+        finally:
+            if profile:
+                trace_id = osprofiler_profiler.get().get_base_id()
+                print("Trace ID: %s" % trace_id)
+                print("To display trace use next command:\n"
+                      "osprofiler trace show --html %s" % trace_id)
 
     def _run_extension_hooks(self, hook_type, *args, **kwargs):
         """Run hooks for all registered extensions."""
@@ -497,6 +581,20 @@ class OpenStackTroveShell(object):
                                        args.command)
         else:
             self.parser.print_help()
+
+    def _get_keystone_auth(self, session, auth_url, **kwargs):
+        auth_token = kwargs.pop('auth_token', None)
+        if auth_token:
+            return token.Token(auth_url, auth_token, **kwargs)
+        else:
+            return password.Password(
+                auth_url,
+                username=kwargs.pop('username'),
+                user_id=kwargs.pop('user_id'),
+                password=kwargs.pop('password'),
+                user_domain_id=kwargs.pop('user_domain_id'),
+                user_domain_name=kwargs.pop('user_domain_name'),
+                **kwargs)
 
 
 # I'm picky about my shell help.
