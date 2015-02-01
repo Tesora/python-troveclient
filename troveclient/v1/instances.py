@@ -189,6 +189,24 @@ class Instances(base.ManagerWithFind):
         return self._get("/instances/%s/configuration" % base.getid(instance),
                          "instance")
 
+    def promote_to_replica_source(self, instance):
+        """Promote a replica to be the new replica_source of its set
+
+        :param instance: The :class:`Instance` (or its ID) of the database
+        instance to promote.
+        """
+        body = {'promote_to_replica_source': {}}
+        self._action(instance, body)
+
+    def eject_replica_source(self, instance):
+        """Eject a replica source from its set
+
+        :param instance: The :class:`Instance` (or its ID) of the database
+        instance to eject.
+        """
+        body = {'eject_replica_source': {}}
+        self._action(instance, body)
+
 
 class InstanceStatus(object):
 
@@ -200,3 +218,5 @@ class InstanceStatus(object):
     RESIZE = "RESIZE"
     SHUTDOWN = "SHUTDOWN"
     RESTART_REQUIRED = "RESTART_REQUIRED"
+    PROMOTING = "PROMOTING"
+    EJECTING = "EJECTING"

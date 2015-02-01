@@ -496,6 +496,8 @@ def do_restart(cs, args):
     instance = _find_instance(cs, args.instance)
     cs.instances.restart(instance)
 
+# Replication related commands
+
 
 @utils.arg('instance',
            metavar='<instance>',
@@ -505,6 +507,26 @@ def do_detach_replica(cs, args):
     """Detaches a replica instance from its replication source."""
     instance = _find_instance(cs, args.instance)
     cs.instances.edit(instance, detach_replica_source=True)
+
+
+@utils.arg('instance',
+           metavar='<instance>',
+           type=str,
+           help='ID or name of the instance.')
+def do_promote_to_replica_source(cs, args):
+    """Promotes a replica to be the new replica source of its set."""
+    instance = _find_instance(cs, args.instance)
+    cs.instances.promote_to_replica_source(instance)
+
+
+@utils.arg('instance',
+           metavar='<instance>',
+           type=str,
+           help='ID or name of the instance.')
+def do_eject_replica_source(cs, args):
+    """Ejects a replica source from its set."""
+    instance = _find_instance(cs, args.instance)
+    cs.instances.eject_replica_source(instance)
 
 # Backup related commands
 
