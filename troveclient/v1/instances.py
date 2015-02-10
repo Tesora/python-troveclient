@@ -51,7 +51,7 @@ class Instances(base.ManagerWithFind):
     def create(self, name, flavor_id, volume=None, databases=None, users=None,
                restorePoint=None, availability_zone=None, datastore=None,
                datastore_version=None, nics=None, configuration=None,
-               replica_of=None, slave_of=None):
+               replica_of=None, slave_of=None, replica_count=None):
         """Create (boot) a new instance."""
 
         body = {"instance": {
@@ -81,6 +81,8 @@ class Instances(base.ManagerWithFind):
             body["instance"]["configuration"] = configuration
         if replica_of or slave_of:
             body["instance"]["replica_of"] = base.getid(replica_of) or slave_of
+        if replica_count:
+            body["instance"]["replica_count"] = replica_count
 
         return self._create("/instances", body, "instance")
 

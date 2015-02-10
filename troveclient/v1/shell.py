@@ -352,6 +352,11 @@ def do_update(cs, args):
            metavar='<source_instance>',
            default=None,
            help='ID or name of an existing instance to replicate from.')
+@utils.arg('--replica_count',
+           metavar='<count>',
+           type=int,
+           default=1,
+           help='Number of replicas to create (defaults to 1).')
 @utils.service_type('database')
 def do_create(cs, args):
     """Creates a new instance."""
@@ -378,6 +383,7 @@ def do_create(cs, args):
                        "(but not both) specified." % nic_str)
             raise exceptions.CommandError(err_msg)
         nics.append(nic_info)
+
     instance = cs.instances.create(args.name,
                                    args.flavor_id,
                                    volume=volume,
@@ -389,7 +395,8 @@ def do_create(cs, args):
                                    datastore_version=args.datastore_version,
                                    nics=nics,
                                    configuration=args.configuration,
-                                   replica_of=replica_of_instance)
+                                   replica_of=replica_of_instance,
+                                   replica_count=args.replica_count)
     _print_instance(instance)
 
 
