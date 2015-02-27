@@ -38,15 +38,17 @@ from keystoneclient.auth.identity.generic import token
 from keystoneclient.auth.identity import v3 as identity
 from keystoneclient import session as ks_session
 
+from oslo.utils import encodeutils
+from oslo.utils import importutils
+
 import troveclient
 import troveclient.auth_plugin
+
 from troveclient import client
 import troveclient.extension
+from troveclient.i18n import _  # noqa
 from troveclient.openstack.common.apiclient import exceptions as exc
-from troveclient.openstack.common import gettextutils as gtu
-from troveclient.openstack.common.gettextutils import _  # noqa
-from troveclient.openstack.common import importutils
-from troveclient.openstack.common import strutils
+
 from troveclient import utils
 from troveclient.v1 import shell as shell_v1
 
@@ -184,15 +186,14 @@ class OpenStackTroveShell(object):
                                 metavar='HMAC_KEY',
                                 default=utils.env('OS_PROFILE_HMACKEY',
                                                   default=None),
-                                help='HMAC key to use for encrypting context '
-                                'data for performance profiling of operation. '
-                                'This key should be the value of HMAC key '
-                                'configured in osprofiler middleware in '
-                                'Trove, it is specified in paste '
-                                'configure file at /etc/trove/api-paste.ini. '
-                                'Without key the profiling will not be '
-                                'triggered even if osprofiler is enabled '
-                                'on server side. '
+                                help='HMAC key used to encrypt context '
+                                'data when profiling the performance of an '
+                                'operation.  This key should be set to one of '
+                                'the HMAC keys configured in Trove (they are '
+                                'found in api-paste.ini, typically in '
+                                '/etc/trove).  Without the key, profiling '
+                                'will not be triggered even if it is enabled '
+                                'on the server side. '
                                 'Defaults to env[OS_PROFILE_HMACKEY].')
 
         self._append_global_identity_args(parser)
@@ -544,7 +545,7 @@ class OpenStackTroveShell(object):
             if profile:
                 trace_id = osprofiler_profiler.get().get_base_id()
                 print("Trace ID: %s" % trace_id)
-                print("To display trace use next command:\n"
+                print("To display the trace, use the following command:\n"
                       "osprofiler trace show --html %s" % trace_id)
 
     def _run_extension_hooks(self, hook_type, *args, **kwargs):
@@ -620,7 +621,7 @@ class OpenStackHelpFormatter(argparse.HelpFormatter):
         'trove create <name> <flavor_id> --databases <db_name>'
         """
         if prefix is None:
-            prefix = gtu._('usage: ')
+            prefix = _('usage: ')
 
         # if usage is specified, use that
         if usage is not None:
@@ -723,7 +724,7 @@ def main():
         if sys.version_info >= (3, 0):
             OpenStackTroveShell().main(sys.argv[1:])
         else:
-            OpenStackTroveShell().main(map(strutils.safe_decode,
+            OpenStackTroveShell().main(map(encodeutils.safe_decode,
                                            sys.argv[1:]))
     except KeyboardInterrupt:
         print("... terminating trove client", file=sys.stderr)
@@ -733,7 +734,7 @@ def main():
         message = six.text_type(e)
         if not isinstance(message, six.string_types):
             message = str(message)
-        print("ERROR: %s" % strutils.safe_encode(message), file=sys.stderr)
+        print("ERROR: %s" % encodeutils.safe_encode(message), file=sys.stderr)
         sys.exit(1)
 
 
