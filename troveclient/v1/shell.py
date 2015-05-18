@@ -16,8 +16,15 @@
 
 from __future__ import print_function
 
+import re
 import sys
 import time
+
+INSTANCE_ERROR = ("Instance argument(s) must be of the form --instance "
+                  "<flavor=flavor_name_or_id, volume=volume>")
+NIC_ERROR = ("Invalid NIC argument %s. NIC arguments must be in correct form,"
+             " with at minimum net-id or port-id (but not both) specified."
+             "Please refer to help.")
 
 try:
     import simplejson as json
@@ -429,14 +436,7 @@ def do_create(cs, args):
              [z.split(':')[:2] for z in args.users]]
     nics = []
     for nic_str in args.nics:
-        nic_info = dict([(k, v) for (k, v) in [z.split("=", 1)[:2] for z in
-                                               nic_str.split(",")]])
-        if bool(nic_info.get('net-id')) == bool(nic_info.get('port-id')):
-            err_msg = ("Invalid nic argument '%s'. Nic arguments must be of "
-                       "the form --nic <net-id=net-uuid,v4-fixed-ip=ip-addr,"
-                       "port-id=port-uuid>, with at minimum net-id or port-id "
-                       "(but not both) specified." % nic_str)
-            raise exceptions.CommandError(err_msg)
+        nic_info = _get_nic_info(nic_str)
         nics.append(nic_info)
 
     instance = cs.instances.create(args.name,
@@ -455,6 +455,19 @@ def do_create(cs, args):
     _print_instance(instance)
 
 
+def _get_nic_info(nic_str):
+    nic_info = dict([(k, v) for (k, v) in [z.split("=", 1)[:2] for z in
+                                           nic_str.split(",")]])
+    if bool(nic_info.get('net-id')) or bool(nic_info.get('port-id')) or \
+            bool(nic_info.get('v4-fixed-ip')):
+        if bool(nic_info.get('net-id')) and bool(nic_info.get('port-id')):
+            raise exceptions.CommandError(NIC_ERROR % nic_str)
+    else:
+        raise exceptions.CommandError(NIC_ERROR % nic_str)
+
+    return nic_info
+
+
 @utils.arg('name',
            metavar='<name>',
            type=str,
@@ -466,31 +479,78 @@ def do_create(cs, args):
            metavar='<datastore_version>',
            help='A datastore version name or UUID.')
 @utils.arg('--instance',
-           metavar="<flavor_id=flavor_id,volume=volume>",
+           metavar="<flavor=flavor_name_or_id,volume=volume>",
+           help="Create an instance for the cluster. Specify multiple "
+                "times to create multiple instances. "
+                "eg.: --instances <flavor=flavor of the instance, "
+                "volume=size of the instance disk volume in GB,"
+                "nic='net-id=net-uuid,v4-fixed-ip=ip-addr,port-id=port-uuid', "
+                "where net-id=network-id to be attached to NIC(either "
+                "port-id or net-id must be specified),v4-fixed-ip=IPv4 fixed "
+                "address for NIC (optional),port-id=attach NIC to port with "
+                "this ID (either port-id or net-id must be specified), "
+                "availability_zone=the zone hint to give to nova.",
            action='append',
            dest='instances',
-           default=[],
-           help="Create an instance for the cluster.  Specify multiple "
-                "times to create multiple instances.")
+           default=[])
 @utils.service_type('database')
 def do_cluster_create(cs, args):
     """Creates a new cluster."""
     instances = []
+    instance_args = ["flavor", "volume", "nic", "availability_zone"]
     for instance_str in args.instances:
         instance_info = {}
-        for z in instance_str.split(","):
-            for (k, v) in [z.split("=", 1)[:2]]:
-                if k == "flavor_id":
-                    instance_info["flavorRef"] = v
-                elif k == "volume":
-                    instance_info["volume"] = {"size": v}
-                else:
-                    instance_info[k] = v
+        nic_info = {}
+        re_pattern = '('
+        for x in instance_args:
+            re_pattern = re_pattern + x + '=|'
+        re_pattern = re_pattern[:-1]
+        re_pattern += ')'
+        instance_arguments = re.compile(re_pattern)
+        inst_args = instance_arguments.split(instance_str)
+        if '' in inst_args:
+            inst_args.remove('')
+        if len(inst_args) % 2 != 0:
+            raise exceptions.CommandError(instance_info)
+        nic_str = ''
+        for x in range(0, len(inst_args), 2):
+            if inst_args[x] == "flavor=":
+                flavor_num = inst_args[x + 1].split(',')[0]
+                flavor_id = _find_flavor(cs, flavor_num).id
+                instance_info["flavorRef"] = str(flavor_id)
+            elif inst_args[x] == "volume=":
+                volume = inst_args[x + 1].split(',')[0]
+                instance_info["volume"] = {"size": volume}
+            elif inst_args[x] == "nic=":
+                nic_str = inst_args[x + 1]
+                nic_args = nic_str.split(',')
+                for y in nic_args:
+                    if y:
+                        nic_arg = y.split('=')
+                        nic_info[str(nic_arg[0])] = str(nic_arg[1])
+                instance_info["nics"] = [nic_info]
+            elif inst_args[x] == "availability_zone=":
+                az = inst_args[x + 1].split(',')[0]
+                instance_info["availability-zone"] = str(az)
+            else:
+                key = inst_args[x][:-1]
+                value = inst_args[x + 1].split(',')[0]
+                instance_info[key] = value
+
         if not instance_info.get('flavorRef'):
             err_msg = ("flavor_id is required. Instance arguments must be "
                        "of the form --instance <flavor_id=flavor_id,"
                        "volume=volume>.")
             raise exceptions.CommandError(err_msg)
+        if nic_info:
+            if (bool(nic_info.get('net-id')) or
+                    bool(nic_info.get('port-id')) or
+                    bool(nic_info.get('v4-fixed-ip'))):
+                if (bool(nic_info.get('net-id')) and
+                        bool(nic_info.get('port-id'))):
+                    raise exceptions.CommandError(NIC_ERROR % nic_str)
+            else:
+                raise exceptions.CommandError(NIC_ERROR % nic_str)
         instances.append(instance_info)
     cluster = cs.clusters.create(args.name,
                                  args.datastore,
