@@ -847,6 +847,15 @@ def do_root_enable(cs, args):
 @utils.arg('instance', metavar='<instance>',
            help='ID or name of the instance.')
 @utils.service_type('database')
+def do_root_disable(cs, args):
+    """Disables root for an instance."""
+    instance = _find_instance(cs, args.instance)
+    cs.root.delete(instance)
+
+
+@utils.arg('instance', metavar='<instance>',
+           help='ID or name of the instance.')
+@utils.service_type('database')
 def do_root_show(cs, args):
     """Gets status if root was ever enabled for an instance."""
     instance = _find_instance(cs, args.instance)
