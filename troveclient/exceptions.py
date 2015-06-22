@@ -34,3 +34,13 @@ class NoTokenLookupException(Exception):
 class ResponseFormatError(Exception):
     """Could not parse the response format."""
     pass
+
+
+class GuestLogNotFoundError(Exception):
+    """The specified guest log does not exist."""
+    pass
+
+
+class GuestLogFileNotFoundError(Exception):
+    """The specified guest log file does not exist."""
+    pass
