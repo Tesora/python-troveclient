@@ -134,9 +134,8 @@ def do_flavor_list(cs, args):
     elif not args.datastore_type and not args.datastore_version_id:
         flavors = cs.flavors.list()
     else:
-        err_msg = ("Specify both <datastore_type> and <datastore_version_id>"
-                   " to list datastore version associated flavors.")
-        raise exceptions.CommandError(err_msg)
+        raise exceptions.MissingArgs(['datastore_type',
+                                      'datastore_version_id'])
 
     # Fallback to str_id where necessary.
     _flavors = []
@@ -251,6 +250,58 @@ def do_cluster_instances(cs, args):
     utils.print_list(
         instances, ['id', 'name', 'flavor_id', 'size', 'status'],
         obj_is_dict=True)
+
+
+@utils.arg('--instance',
+           metavar="<name=name,flavor=flavor_name_or_id,volume=volume>",
+           action='append',
+           dest='instances',
+           default=[],
+           help="Add an instance to the cluster. Specify "
+                "multiple times to create multiple instances.")
+@utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
+@utils.service_type('database')
+def do_cluster_grow(cs, args):
+    """Adds more instances to a cluster."""
+    cluster = _find_cluster(cs, args.cluster)
+    instances = []
+    for instance_str in args.instances:
+        instance_info = {}
+        for z in instance_str.split(","):
+            for (k, v) in [z.split("=", 1)[:2]]:
+                if k == "name":
+                    instance_info[k] = v
+                elif k == "flavor":
+                    flavor_id = _find_flavor(cs, v).id
+                    instance_info["flavorRef"] = str(flavor_id)
+                elif k == "volume":
+                    instance_info["volume"] = {"size": v}
+                else:
+                    instance_info[k] = v
+        if not instance_info.get('flavorRef'):
+            raise exceptions.CommandError(
+                'flavor is required. '
+                'Instance arguments must be of the form '
+                '--instance <flavor=flavor_name_or_id,volume=volume,data=data>'
+            )
+        instances.append(instance_info)
+    cs.clusters.grow(cluster, instances=instances)
+
+
+@utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
+@utils.arg('instances',
+           nargs='+',
+           metavar='<instance>',
+           default=[],
+           help="Drop instance(s) from the cluster. Specify "
+                "multiple ids to drop multiple instances.")
+@utils.service_type('database')
+def do_cluster_shrink(cs, args):
+    """Drops instances from a cluster."""
+    cluster = _find_cluster(cs, args.cluster)
+    instances = [{'id': _find_instance(cs, instance).id}
+                 for instance in args.instances]
+    cs.clusters.shrink(cluster, instances=instances)
 
 
 @utils.arg('instance', metavar='<instance>',
@@ -387,7 +438,7 @@ def do_create(cs, args):
                        "the form --nic <net-id=net-uuid,v4-fixed-ip=ip-addr,"
                        "port-id=port-uuid>, with at minimum net-id or port-id "
                        "(but not both) specified." % nic_str)
-            raise exceptions.CommandError(err_msg)
+            raise exceptions.ValidationError(err_msg)
         nics.append(nic_info)
 
     instance = cs.instances.create(args.name,
@@ -440,12 +491,11 @@ def do_cluster_create(cs, args):
                     instance_info[k] = v
         if not instance_info.get('flavorRef'):
             err_msg = ("flavor is required. %s." % INSTANCE_ERROR)
-            raise exceptions.CommandError(err_msg)
+            raise exceptions.ValidationError(err_msg)
         instances.append(instance_info)
 
     if len(instances) == 0:
-        err_msg = ("An instance must be specified. %s." % INSTANCE_ERROR)
-        raise exceptions.CommandError(err_msg)
+        raise exceptions.MissingArgs(['instance'])
 
     cluster = cs.clusters.create(args.name,
                                  args.datastore,
