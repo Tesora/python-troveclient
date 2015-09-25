@@ -174,29 +174,30 @@ class ShellTest(utils.TestCase):
         self.assert_called('DELETE', '/clusters/cls-1234')
 
     def test_boot(self):
-        self.run_command('create test-member-1 1 --size 1')
+        self.run_command('create test-member-1 1 --size 1 --volume_type lvm')
         self.assert_called_anytime(
             'POST', '/instances',
             {'instance': {
-                'volume': {'size': 1},
+                'volume': {'size': 1, 'type': 'lvm'},
                 'flavorRef': 1,
                 'name': 'test-member-1',
                 'replica_count': 1
             }})
 
     def test_boot_by_flavor_name(self):
-        self.run_command('create test-member-1 m1.tiny --size 1')
+        self.run_command(
+            'create test-member-1 m1.tiny --size 1 --volume_type lvm')
         self.assert_called_anytime(
             'POST', '/instances',
             {'instance': {
-                'volume': {'size': 1},
+                'volume': {'size': 1, 'type': 'lvm'},
                 'flavorRef': 1,
                 'name': 'test-member-1',
                 'replica_count': 1
             }})
 
     def test_boot_nic_error(self):
-        cmd = ('create test-member-1 1 --size 1 '
+        cmd = ('create test-member-1 1 --size 1 --volume_type lvm '
                '--nic net-id=some-id,port-id=some-id')
         self.assertRaisesRegexp(
             exceptions.ValidationError, 'Invalid nic argument',

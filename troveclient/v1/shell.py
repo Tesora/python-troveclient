@@ -379,6 +379,11 @@ def do_update(cs, args):
            default=None,
            help="Size of the instance disk volume in GB. "
                 "Required when volume support is enabled.")
+@utils.arg('--volume_type',
+           metavar='<volume_type>',
+           type=str,
+           default=None,
+           help="Volume type. Optional when volume support is enabled.")
 @utils.arg('flavor',
            metavar='<flavor>',
            help='Flavor ID or name of the instance.')
@@ -436,7 +441,8 @@ def do_create(cs, args):
     replica_of_instance = None
     flavor_id = _find_flavor(cs, args.flavor).id
     if args.size:
-        volume = {"size": args.size}
+        volume = {"size": args.size,
+                  "type": args.volume_type}
     restore_point = None
     if args.backup:
         restore_point = {"backupRef": args.backup}
@@ -496,15 +502,20 @@ def do_cluster_create(cs, args):
     instances = []
     for instance_str in args.instances:
         instance_info = {}
+        volume_info = {}
         for z in instance_str.split(","):
             for (k, v) in [z.split("=", 1)[:2]]:
                 if k == "flavor":
                     flavor_id = _find_flavor(cs, v).id
                     instance_info["flavorRef"] = str(flavor_id)
                 elif k == "volume":
-                    instance_info["volume"] = {"size": v}
+                    volume_info.update({"size": v})
+                elif k == "volume_type":
+                    volume_info.update({"volume_type": v})
                 else:
                     instance_info[k] = v
+        if volume_info:
+            instance_info.update({"volume": volume_info})
         if not instance_info.get('flavorRef'):
             err_msg = ("flavor is required. %s." % INSTANCE_ERROR)
             raise exceptions.ValidationError(err_msg)
