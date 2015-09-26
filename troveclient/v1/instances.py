@@ -15,11 +15,27 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import os
+
 from troveclient import base
 from troveclient import common
+from troveclient import exceptions
+
+from swiftclient import client
 
 REBOOT_SOFT = 'SOFT'
 REBOOT_HARD = 'HARD'
+
+
+def swift_client():
+    auth_url = os.getenv("OS_AUTH_URL")
+    user = os.getenv("OS_USERNAME")
+    key = os.getenv("OS_PASSWORD")
+    tenant = os.getenv("OS_TENANT_NAME")
+    os_options = {'region_name': os.getenv("OS_REGION_NAME")}
+
+    return client.Connection(auth_url, user, key, tenant_name=tenant,
+                             auth_version="2.0", os_options=os_options)
 
 
 class Instance(base.Resource):
@@ -43,9 +59,18 @@ class Instance(base.Resource):
         self.manager.edit(self.id, detach_replica_source=True)
 
 
+class Log(base.Resource):
+    """A Log is a log on the database guest instance."""
+
+    def __repr__(self):
+        return "<Log: %s>" % self.name
+
+
 class Instances(base.ManagerWithFind):
     """Manage :class:`Instance` resources."""
     resource_class = Instance
+
+    log_cache = {}
 
     # TODO(SlickNik): Remove slave_of param after updating tests to replica_of
     def create(self, name, flavor_id, volume=None, databases=None, users=None,
@@ -209,6 +234,114 @@ class Instances(base.ManagerWithFind):
         body = {'eject_replica_source': {}}
         self._action(instance, body)
 
+    def log_list(self, instance):
+        """Get a list of all guest logs.
+
+        :param instance: The :class:`Instance` (or its ID) of the database
+        instance to get the log for.
+        :rtype: list of :class:`GuestLog`.
+        """
+        url = '/instances/%s/log' % base.getid(instance)
+        resp, body = self.api.client.get(url)
+        common.check_for_exceptions(resp, body, url)
+        return [Log(self, log, loaded=True) for log in body['logs']]
+
+    def log_publish(self, instance, log, disable=None):
+        """Publish guest log to swift container.
+
+        :param instance: The :class:`Instance` (or its ID) of the database
+        instance to get the log for.
+        :param log: The type of <log> to publish
+        :param disable: Turn off <log> and delete the associated container
+        :rtype: List of :class:`Log`.
+        """
+        body = {"name": log}
+        if disable:
+            body.update({'disable': int(disable)})
+        url = "/instances/%s/log" % base.getid(instance)
+        resp, body = self.api.client.post(url, body=body)
+        common.check_for_exceptions(resp, body, url)
+        return Log(self, body['log'], loaded=True)
+
+    def _get_container(self, instance, log, publish):
+        if publish:
+            log_info = self.log_publish(instance, log)
+            container = log_info.container
+        else:
+            url = '/instances/%s/log-name/%s' % (base.getid(instance), log)
+            resp, body = self.api.client.get(url)
+            common.check_for_exceptions(resp, body, url)
+            container = body['log-name']
+        return container
+
+    def log_generator(self, instance, log, publish=None, lines=50,
+                      swift=None):
+        """Return generator to yield the last <lines> lines of guest log.
+
+        :param instance: The :class:`Instance` (or its ID) of the database
+        instance to get the log for.
+        :param log: The type of <log> to publish
+        :param publish: Publish updates before displaying log
+        :param lines: Display last <lines> lines of log (0 for all lines)
+        :param swift: Connection to swift
+        :rtype: generator function to yield log as chunks.
+        """
+
+        if not swift:
+            swift = swift_client()
+
+        def log_generator(instance, log, publish, lines, swift):
+            try:
+                container = self._get_container(instance, log, publish)
+                head, body = swift.get_container(container)
+                log_obj_to_display = []
+                if lines and lines > 0:
+                    parts = sorted(body, key=lambda obj: obj['last_modified'],
+                                   reverse=True)
+                    for part in parts:
+                        obj_hdrs = swift.head_object(container, part['name'])
+                        obj_lines = int(obj_hdrs['x-object-meta-lines'])
+                        log_obj_to_display.insert(0, part)
+                        if obj_lines >= lines:
+                            break
+                        lines -= obj_lines
+                    part = log_obj_to_display.pop(0)
+                    hdrs, log_obj = swift.get_object(container, part['name'])
+                    log_by_lines = log_obj.splitlines()
+                    yield "\n".join(log_by_lines[-1 * lines - 1:-1]) + "\n"
+                else:
+                    log_obj_to_display = sorted(
+                        body, key=lambda obj: obj['last_modified'])
+                for log_part in log_obj_to_display:
+                    headers, log_obj = swift.get_object(container,
+                                                        log_part['name'])
+                    yield log_obj
+            except client.ClientException as ex:
+                raise exceptions.GuestLogNotFoundError()
+            except Exception as ex:
+                if "does not exist" in ex.message:
+                    raise exceptions.GuestLogFileNotFoundError()
+                else:
+                    raise
+
+        return lambda: log_generator(instance, log, publish, lines, swift)
+
+    def log_save(self, instance, log, publish=None, filename=None):
+        """Saves a guest log to a file.
+
+        :param instance: The :class:`Instance` (or its ID) of the database
+        instance to get the log for.
+        :param log: The type of <log> to publish
+        :param publish: Publish updates before displaying log
+        :rtype: Filename to which log was saved
+        """
+        written_file = filename or (instance.name + '-' + log + ".log")
+        log_gen = self.log_generator(instance, log, publish, 0)
+        with open(written_file, 'w') as f:
+            for log_obj in log_gen():
+                f.write(log_obj)
+        return written_file
+
 
 class InstanceStatus(object):
 
@@ -222,3 +355,4 @@ class InstanceStatus(object):
     RESTART_REQUIRED = "RESTART_REQUIRED"
     PROMOTING = "PROMOTING"
     EJECTING = "EJECTING"
+    LOGGING = "LOGGING"
