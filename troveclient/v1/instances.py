@@ -264,15 +264,25 @@ class Instances(base.ManagerWithFind):
         return Log(self, body['log'], loaded=True)
 
     def _get_container(self, instance, log, publish):
-        if publish:
-            log_info = self.log_publish(instance, log)
-            container = log_info.container
-        else:
-            url = '/instances/%s/log-name/%s' % (base.getid(instance), log)
-            resp, body = self.api.client.get(url)
-            common.check_for_exceptions(resp, body, url)
-            container = body['log-name']
-        return container
+        try:
+            if publish:
+                log_info = self.log_publish(instance, log)
+                container = log_info.container
+            else:
+                url = '/instances/%s/log-name/%s' % (base.getid(instance), log)
+                resp, body = self.api.client.get(url)
+                common.check_for_exceptions(resp, body, url)
+                container = body['log-name']
+            return container
+        except client.ClientException:
+            raise exceptions.GuestLogNotFoundError()
+        except Exception as ex:
+            if "is not defined" in ex.message.lower():
+                raise exceptions.GuestLogNotFoundError()
+            elif "does not exist" in ex.message.lower():
+                raise exceptions.GuestLogFileNotFoundError()
+            else:
+                raise
 
     def log_generator(self, instance, log, publish=None, lines=50,
                       swift=None):
@@ -290,12 +300,12 @@ class Instances(base.ManagerWithFind):
         if not swift:
             swift = swift_client()
 
-        def log_generator(instance, log, publish, lines, swift):
+        def _log_generator(instance, log, publish, lines, swift):
             try:
                 container = self._get_container(instance, log, publish)
                 head, body = swift.get_container(container)
                 log_obj_to_display = []
-                if lines and lines > 0:
+                if lines:
                     parts = sorted(body, key=lambda obj: obj['last_modified'],
                                    reverse=True)
                     for part in parts:
@@ -305,10 +315,10 @@ class Instances(base.ManagerWithFind):
                         if obj_lines >= lines:
                             break
                         lines -= obj_lines
-                    part = log_obj_to_display.pop(0)
+                    part = log_obj_to_display[0]
                     hdrs, log_obj = swift.get_object(container, part['name'])
                     log_by_lines = log_obj.splitlines()
-                    yield "\n".join(log_by_lines[-1 * lines - 1:-1]) + "\n"
+                    yield "\n".join(log_by_lines[-1 * lines - 1:-1])
                 else:
                     log_obj_to_display = sorted(
                         body, key=lambda obj: obj['last_modified'])
@@ -316,15 +326,10 @@ class Instances(base.ManagerWithFind):
                     headers, log_obj = swift.get_object(container,
                                                         log_part['name'])
                     yield log_obj
-            except client.ClientException as ex:
-                raise exceptions.GuestLogNotFoundError()
-            except Exception as ex:
-                if "does not exist" in ex.message:
-                    raise exceptions.GuestLogFileNotFoundError()
-                else:
-                    raise
+            except client.ClientException:
+                raise exceptions.GuestLogNotPublishedError()
 
-        return lambda: log_generator(instance, log, publish, lines, swift)
+        return lambda: _log_generator(instance, log, publish, lines, swift)
 
     def log_save(self, instance, log, publish=None, filename=None):
         """Saves a guest log to a file.

@@ -41,6 +41,11 @@ class GuestLogNotFoundError(Exception):
     pass
 
 
+class GuestLogNotPublishedError(Exception):
+    """The specified guest log has not been published."""
+    pass
+
+
 class GuestLogFileNotFoundError(Exception):
     """The specified guest log file does not exist."""
     pass

@@ -21,7 +21,8 @@ import time
 
 INSTANCE_ERROR = ("Instance argument(s) must be of the form --instance "
                   "<flavor=flavor_name_or_id, volume=volume>")
-NO_LOG_FOUND_ERROR = "ERROR: No published '%s' log was found for %s."
+NO_LOG_FOUND_ERROR = "ERROR: No '%s' log was found for %s."
+NO_LOG_PUBLISHED_ERROR = "ERROR: No published '%s' log was found for %s."
 NO_LOG_FILE_FOUND_ERROR = ("ERROR: The log file associated with the '%s' log "
                            "was not found for %s.")
 
@@ -934,10 +935,8 @@ def do_root_enable(cs, args):
 @utils.service_type('database')
 def do_root_disable(cs, args):
     """Disables root for an instance."""
-    instance_or_cluster, resource_type = _find_instance_or_cluster(
-        cs, args.instance_or_cluster)
-    if resource_type == 'instance':
-        cs.root.disable_instance_root(instance_or_cluster)
+    instance = _find_instance(cs, args.instance)
+    cs.root.delete(instance)
 
 
 @utils.arg('instance_or_cluster', metavar='<instance_or_cluster>',
@@ -1308,7 +1307,8 @@ def do_log_list(cs, args):
     instance = _find_instance(cs, args.instance)
     log_list = cs.instances.log_list(instance)
     utils.print_list(log_list,
-                     ['name', 'type', 'status', 'publishable', 'container'])
+                     ['name', 'type', 'status', 'published', 'pending',
+                      'container'])
 
 
 @utils.arg('instance', metavar='<instance>', help='Id or Name of the instance')
@@ -1318,9 +1318,17 @@ def do_log_list(cs, args):
 @utils.service_type('database')
 def do_log_publish(cs, args):
     """Instructs trove guest to publish latest log entries on instance."""
-    instance = _find_instance(cs, args.instance)
-    log_info = cs.instances.log_publish(instance, args.log_type, args.disable)
-    _print_object(log_info)
+    try:
+        instance = _find_instance(cs, args.instance)
+        log_info = cs.instances.log_publish(instance,
+                                            args.log_type, args.disable)
+        _print_object(log_info)
+    except exceptions.GuestLogNotFoundError:
+        print(NO_LOG_FOUND_ERROR % (args.log_type, instance))
+    except exceptions.GuestLogNotPublishedError:
+        print(NO_LOG_PUBLISHED_ERROR % (args.log_type, instance))
+    except exceptions.GuestLogFileNotFoundError:
+        print(NO_LOG_FILE_FOUND_ERROR % (args.log_type, instance))
 
 
 @utils.arg('instance', metavar='<instance>', help='Id or Name of the instance')
@@ -1340,6 +1348,8 @@ def do_log_tail(cs, args):
             print(log_part, end="")
     except exceptions.GuestLogNotFoundError:
         print(NO_LOG_FOUND_ERROR % (args.log_type, instance))
+    except exceptions.GuestLogNotPublishedError:
+        print(NO_LOG_PUBLISHED_ERROR % (args.log_type, instance))
     except exceptions.GuestLogFileNotFoundError:
         print(NO_LOG_FILE_FOUND_ERROR % (args.log_type, instance))
 
@@ -1360,6 +1370,8 @@ def do_log_save(cs, args):
         print('Log "%s" written to %s' % (args.log_type, filename))
     except exceptions.GuestLogNotFoundError:
         print(NO_LOG_FOUND_ERROR % (args.log_type, instance))
+    except exceptions.GuestLogNotPublishedError:
+        print(NO_LOG_PUBLISHED_ERROR % (args.log_type, instance))
     except exceptions.GuestLogFileNotFoundError:
         print(NO_LOG_FILE_FOUND_ERROR % (args.log_type, instance))
 
