@@ -946,8 +946,10 @@ def do_root_enable(cs, args):
 @utils.service_type('database')
 def do_root_disable(cs, args):
     """Disables root for an instance."""
-    instance = _find_instance(cs, args.instance)
-    cs.root.delete(instance)
+    instance_or_cluster, resource_type = _find_instance_or_cluster(
+        cs, args.instance_or_cluster)
+    if resource_type == 'instance':
+        cs.root.disable_instance_root(instance_or_cluster)
 
 
 @utils.arg('instance_or_cluster', metavar='<instance_or_cluster>',
