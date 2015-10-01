@@ -21,10 +21,7 @@ import time
 
 INSTANCE_ERROR = ("Instance argument(s) must be of the form --instance "
                   "<flavor=flavor_name_or_id, volume=volume>")
-NO_LOG_FOUND_ERROR = "ERROR: No '%s' log was found for %s."
-NO_LOG_PUBLISHED_ERROR = "ERROR: No published '%s' log was found for %s."
-NO_LOG_FILE_FOUND_ERROR = ("ERROR: The log file associated with the '%s' log "
-                           "was not found for %s.")
+NO_LOG_FOUND_ERROR = "ERROR: No published '%s' log was found for %s."
 
 try:
     import simplejson as json
@@ -1338,10 +1335,9 @@ def do_log_publish(cs, args):
         _print_object(log_info)
     except exceptions.GuestLogNotFoundError:
         print(NO_LOG_FOUND_ERROR % (args.log_type, instance))
-    except exceptions.GuestLogNotPublishedError:
-        print(NO_LOG_PUBLISHED_ERROR % (args.log_type, instance))
-    except exceptions.GuestLogFileNotFoundError:
-        print(NO_LOG_FILE_FOUND_ERROR % (args.log_type, instance))
+    except Exception as ex:
+        error_msg = ex.message.split('\n')
+        print(error_msg[0])
 
 
 @utils.arg('instance', metavar='<instance>', help='Id or Name of the instance')
@@ -1361,10 +1357,9 @@ def do_log_tail(cs, args):
             print(log_part, end="")
     except exceptions.GuestLogNotFoundError:
         print(NO_LOG_FOUND_ERROR % (args.log_type, instance))
-    except exceptions.GuestLogNotPublishedError:
-        print(NO_LOG_PUBLISHED_ERROR % (args.log_type, instance))
-    except exceptions.GuestLogFileNotFoundError:
-        print(NO_LOG_FILE_FOUND_ERROR % (args.log_type, instance))
+    except Exception as ex:
+        error_msg = ex.message.split('\n')
+        print(error_msg[0])
 
 
 @utils.arg('instance', metavar='<instance>', help='Id or Name of the instance')
@@ -1383,10 +1378,9 @@ def do_log_save(cs, args):
         print('Log "%s" written to %s' % (args.log_type, filename))
     except exceptions.GuestLogNotFoundError:
         print(NO_LOG_FOUND_ERROR % (args.log_type, instance))
-    except exceptions.GuestLogNotPublishedError:
-        print(NO_LOG_PUBLISHED_ERROR % (args.log_type, instance))
-    except exceptions.GuestLogFileNotFoundError:
-        print(NO_LOG_FILE_FOUND_ERROR % (args.log_type, instance))
+    except Exception as ex:
+        error_msg = ex.message.split('\n')
+        print(error_msg[0])
 
 
 # @utils.arg('datastore_version',

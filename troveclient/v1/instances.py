@@ -276,13 +276,6 @@ class Instances(base.ManagerWithFind):
             return container
         except client.ClientException:
             raise exceptions.GuestLogNotFoundError()
-        except Exception as ex:
-            if "is not defined" in ex.message.lower():
-                raise exceptions.GuestLogNotFoundError()
-            elif "does not exist" in ex.message.lower():
-                raise exceptions.GuestLogFileNotFoundError()
-            else:
-                raise
 
     def log_generator(self, instance, log, publish=None, lines=50,
                       swift=None):
@@ -306,6 +299,8 @@ class Instances(base.ManagerWithFind):
                 head, body = swift.get_container(container)
                 log_obj_to_display = []
                 if lines:
+                    total_lines = lines
+                    partial_results = False
                     parts = sorted(body, key=lambda obj: obj['last_modified'],
                                    reverse=True)
                     for part in parts:
@@ -313,12 +308,15 @@ class Instances(base.ManagerWithFind):
                         obj_lines = int(obj_hdrs['x-object-meta-lines'])
                         log_obj_to_display.insert(0, part)
                         if obj_lines >= lines:
+                            partial_results = True
                             break
                         lines -= obj_lines
-                    part = log_obj_to_display[0]
+                    if not partial_results:
+                        lines = total_lines
+                    part = log_obj_to_display.pop(0)
                     hdrs, log_obj = swift.get_object(container, part['name'])
                     log_by_lines = log_obj.splitlines()
-                    yield "\n".join(log_by_lines[-1 * lines - 1:-1])
+                    yield "\n".join(log_by_lines[-1 * lines:]) + "\n"
                 else:
                     log_obj_to_display = sorted(
                         body, key=lambda obj: obj['last_modified'])
@@ -327,7 +325,7 @@ class Instances(base.ManagerWithFind):
                                                         log_part['name'])
                     yield log_obj
             except client.ClientException:
-                raise exceptions.GuestLogNotPublishedError()
+                raise exceptions.GuestLogNotFoundError()
 
         return lambda: _log_generator(instance, log, publish, lines, swift)
 
