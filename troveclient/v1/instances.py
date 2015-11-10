@@ -246,18 +246,28 @@ class Instances(base.ManagerWithFind):
         common.check_for_exceptions(resp, body, url)
         return [Log(self, log, loaded=True) for log in body['logs']]
 
-    def log_publish(self, instance, log, disable=None):
-        """Publish guest log to swift container.
+    def log_action(self, instance, log, enable=None, disable=None,
+                   publish=None, discard=None):
+        """Perform action on guest log.
 
         :param instance: The :class:`Instance` (or its ID) of the database
         instance to get the log for.
         :param log: The type of <log> to publish
-        :param disable: Turn off <log> and delete the associated container
+        :param enable: Turn on <log>
+        :param disable: Turn off <log>
+        :param publish: Publish log to associated container
+        :param discard: Delete the associated container
         :rtype: List of :class:`Log`.
         """
         body = {"name": log}
+        if enable:
+            body.update({'enable': int(enable)})
         if disable:
             body.update({'disable': int(disable)})
+        if publish:
+            body.update({'publish': int(publish)})
+        if discard:
+            body.update({'discard': int(discard)})
         url = "/instances/%s/log" % base.getid(instance)
         resp, body = self.api.client.post(url, body=body)
         common.check_for_exceptions(resp, body, url)
@@ -266,7 +276,7 @@ class Instances(base.ManagerWithFind):
     def _get_container(self, instance, log, publish):
         try:
             if publish:
-                log_info = self.log_publish(instance, log)
+                log_info = self.log_action(instance, log, publish=True)
                 container = log_info.container
             else:
                 url = '/instances/%s/log-name/%s' % (base.getid(instance), log)

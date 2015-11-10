@@ -20,7 +20,9 @@ import sys
 import time
 
 INSTANCE_ERROR = ("Instance argument(s) must be of the form --instance "
-                  "<flavor=flavor_name_or_id, volume=volume>")
+                  "<opt=value[,opt=value]> - see help for details.")
+NIC_ERROR = ("Invalid NIC argument: %s. Must specify either net-id or port-id "
+             "but not both. Please refer to help.")
 NO_LOG_FOUND_ERROR = "ERROR: No published '%s' log was found for %s."
 
 try:
@@ -456,12 +458,7 @@ def do_create(cs, args):
     for nic_str in args.nics:
         nic_info = dict([(k, v) for (k, v) in [z.split("=", 1)[:2] for z in
                                                nic_str.split(",")]])
-        if bool(nic_info.get('net-id')) == bool(nic_info.get('port-id')):
-            err_msg = ("Invalid nic argument '%s'. Nic arguments must be of "
-                       "the form --nic <net-id=net-uuid,v4-fixed-ip=ip-addr,"
-                       "port-id=port-uuid>, with at minimum net-id or port-id "
-                       "(but not both) specified." % nic_str)
-            raise exceptions.ValidationError(err_msg)
+        _validate_nic_info(nic_info, nic_str)
         nics.append(nic_info)
 
     instance = cs.instances.create(args.name,
@@ -480,46 +477,135 @@ def do_create(cs, args):
     _print_instance(instance)
 
 
+def _validate_nic_info(nic_info, nic_str):
+    # need one or the other, not both, not none (!= ~ XOR)
+    if not (bool(nic_info.get('net-id')) != bool(nic_info.get('port-id'))):
+        raise exceptions.ValidationError(NIC_ERROR % ("nic='%s'" % nic_str))
+
+
+def _get_flavors(cs, instance_str):
+    flavor_name = _get_instance_property(instance_str, 'flavor', True)
+    flavor_id = _find_flavor(cs, flavor_name).id
+    return str(flavor_id)
+
+
+def _get_networks(instance_str):
+    nic_args = _dequote(_get_instance_property(instance_str, 'nic',
+                                               is_required=False, quoted=True))
+
+    nic_info = {}
+    if nic_args:
+        net_id = _get_instance_property(nic_args, 'net-id', False)
+        port_id = _get_instance_property(nic_args, 'port-id', False)
+        fixed_ipv4 = _get_instance_property(nic_args, 'v4-fixed-ip', False)
+
+        if net_id:
+            nic_info.update({'net-id': net_id})
+        if port_id:
+            nic_info.update({'port-id': port_id})
+        if fixed_ipv4:
+            nic_info.update({'v4-fixed-ip': fixed_ipv4})
+
+        _validate_nic_info(nic_info, nic_args)
+        return [nic_info]
+
+    return None
+
+
+def _dequote(value):
+    def _strip_quotes(value, quote_char):
+        if value:
+            return value.strip(quote_char)
+        return value
+
+    return _strip_quotes(_strip_quotes(value, "'"), '"')
+
+
+def _get_volumes(instance_str):
+    volume_size = _get_instance_property(instance_str, 'volume', True)
+    volume_type = _get_instance_property(instance_str, 'volume_type', False)
+
+    volume_info = {"size": volume_size}
+    if volume_type:
+        volume_info.update({"type": volume_type})
+
+    return volume_info
+
+
+def _get_availability_zones(instance_str):
+    return _get_instance_property(instance_str, 'availability_zone', False)
+
+
+def _get_instance_property(instance_str, property_name, is_required=True,
+                           quoted=False):
+    if property_name in instance_str:
+        try:
+            left = instance_str.split('%s=' % property_name)[1]
+
+            # Handle complex (quoted) properties. Strip the quotes.
+            quote = left[0]
+            if quote in ["'", '"']:
+                left = left[1:]
+            else:
+                if quoted:
+                    # Fail if quotes are required.
+                    raise exceptions.ValidationError(
+                        "Invalid '%s' parameter. The value must be quoted."
+                        % property_name)
+                quote = ''
+
+            property_value = left.split('%s,' % quote)[0]
+            return str(property_value).strip()
+        except IndexError:
+            raise exceptions.ValidationError("Invalid '%s' parameter. %s."
+                                             % (property_name, INSTANCE_ERROR))
+
+    if is_required:
+        raise exceptions.MissingArgs([property_name])
+
+    return None
+
+
 @utils.arg('name',
            metavar='<name>',
            type=str,
            help='Name of the cluster.')
 @utils.arg('datastore',
            metavar='<datastore>',
-           help='A datastore name or UUID.')
+           help='A datastore name or ID.')
 @utils.arg('datastore_version',
            metavar='<datastore_version>',
-           help='A datastore version name or UUID.')
+           help='A datastore version name or ID.')
 @utils.arg('--instance',
-           metavar="<flavor=flavor_name_or_id,volume=volume>",
+           metavar="<opt=value,opt=value,...>",
+           help="Create an instance for the cluster.  Specify multiple "
+                "times to create multiple instances.  "
+                "Valid options are: flavor=flavor_name_or_id, "
+                "volume=disk_size_in_GB, "
+                "nic='net-id=net-uuid,v4-fixed-ip=ip-addr,port-id=port-uuid' "
+                "(where net-id=network_id, v4-fixed-ip=IPv4r_fixed_address, "
+                "port-id=port_id), availability_zone=AZ_hint_for_Nova.",
            action='append',
            dest='instances',
-           default=[],
-           help="Create an instance for the cluster.  Specify multiple "
-                "times to create multiple instances.")
+           default=[])
 @utils.service_type('database')
 def do_cluster_create(cs, args):
     """Creates a new cluster."""
     instances = []
     for instance_str in args.instances:
         instance_info = {}
-        volume_info = {}
-        for z in instance_str.split(","):
-            for (k, v) in [z.split("=", 1)[:2]]:
-                if k == "flavor":
-                    flavor_id = _find_flavor(cs, v).id
-                    instance_info["flavorRef"] = str(flavor_id)
-                elif k == "volume":
-                    volume_info.update({"size": v})
-                elif k == "volume_type":
-                    volume_info.update({"volume_type": v})
-                else:
-                    instance_info[k] = v
-        if volume_info:
-            instance_info.update({"volume": volume_info})
-        if not instance_info.get('flavorRef'):
-            err_msg = ("flavor is required. %s." % INSTANCE_ERROR)
-            raise exceptions.ValidationError(err_msg)
+
+        instance_info["flavorRef"] = _get_flavors(cs, instance_str)
+        instance_info["volume"] = _get_volumes(instance_str)
+
+        nics = _get_networks(instance_str)
+        if nics:
+            instance_info["nics"] = nics
+
+        availability_zones = _get_availability_zones(instance_str)
+        if availability_zones:
+            instance_info["availability-zone"] = availability_zones
+
         instances.append(instance_info)
 
     if len(instances) == 0:
@@ -1323,15 +1409,69 @@ def do_log_list(cs, args):
 
 @utils.arg('instance', metavar='<instance>', help='Id or Name of the instance')
 @utils.arg('log_type', metavar='<log_type>', help='Type of log to publish')
-@utils.arg('--disable', action='store_true', default=False,
-           help='Stop collection of specified log.')
 @utils.service_type('database')
-def do_log_publish(cs, args):
-    """Instructs trove guest to publish latest log entries on instance."""
+def do_log_enable(cs, args):
+    """Instructs Trove guest to start collecting log details."""
     try:
         instance = _find_instance(cs, args.instance)
-        log_info = cs.instances.log_publish(instance,
-                                            args.log_type, args.disable)
+        log_info = cs.instances.log_action(instance, args.log_type,
+                                           enable=True)
+        _print_object(log_info)
+    except exceptions.GuestLogNotFoundError:
+        print(NO_LOG_FOUND_ERROR % (args.log_type, instance))
+    except Exception as ex:
+        error_msg = ex.message.split('\n')
+        print(error_msg[0])
+
+
+@utils.arg('instance', metavar='<instance>', help='Id or Name of the instance')
+@utils.arg('log_type', metavar='<log_type>', help='Type of log to publish')
+@utils.service_type('database')
+def do_log_disable(cs, args):
+    """Instructs Trove guest to stop collecting log details."""
+    try:
+        instance = _find_instance(cs, args.instance)
+        log_info = cs.instances.log_action(instance, args.log_type,
+                                           disable=True)
+        _print_object(log_info)
+    except exceptions.GuestLogNotFoundError:
+        print(NO_LOG_FOUND_ERROR % (args.log_type, instance))
+    except Exception as ex:
+        error_msg = ex.message.split('\n')
+        print(error_msg[0])
+
+
+@utils.arg('instance', metavar='<instance>', help='Id or Name of the instance')
+@utils.arg('log_type', metavar='<log_type>', help='Type of log to publish')
+@utils.arg('--disable', action='store_true', default=False,
+           help='Stop collection of specified log.')
+@utils.arg('--discard', action='store_true', default=False,
+           help='Discard published contents of specified log.')
+@utils.service_type('database')
+def do_log_publish(cs, args):
+    """Instructs Trove guest to publish latest log entries on instance."""
+    try:
+        instance = _find_instance(cs, args.instance)
+        log_info = cs.instances.log_action(
+            instance, args.log_type, disable=args.disable,
+            publish=True, discard=args.discard)
+        _print_object(log_info)
+    except exceptions.GuestLogNotFoundError:
+        print(NO_LOG_FOUND_ERROR % (args.log_type, instance))
+    except Exception as ex:
+        error_msg = ex.message.split('\n')
+        print(error_msg[0])
+
+
+@utils.arg('instance', metavar='<instance>', help='Id or Name of the instance')
+@utils.arg('log_type', metavar='<log_type>', help='Type of log to publish')
+@utils.service_type('database')
+def do_log_discard(cs, args):
+    """Instructs Trove guest to discard the container of the published log."""
+    try:
+        instance = _find_instance(cs, args.instance)
+        log_info = cs.instances.log_action(instance, args.log_type,
+                                           discard=True)
         _print_object(log_info)
     except exceptions.GuestLogNotFoundError:
         print(NO_LOG_FOUND_ERROR % (args.log_type, instance))
