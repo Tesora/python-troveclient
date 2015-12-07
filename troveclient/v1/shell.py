@@ -577,11 +577,11 @@ def _get_instance_property(instance_str, property_name, is_required=True,
            metavar='<datastore_version>',
            help='A datastore version name or ID.')
 @utils.arg('--instance',
-           metavar="<opt=value,opt=value,...>",
+           metavar='"<opt=value,opt=value,...>"',
            help="Create an instance for the cluster.  Specify multiple "
                 "times to create multiple instances.  "
                 "Valid options are: flavor=flavor_name_or_id, "
-                "volume=disk_size_in_GB, "
+                "volume=disk_size_in_GB, volume_type=type, "
                 "nic='net-id=net-uuid,v4-fixed-ip=ip-addr,port-id=port-uuid' "
                 "(where net-id=network_id, v4-fixed-ip=IPv4r_fixed_address, "
                 "port-id=port_id), availability_zone=AZ_hint_for_Nova.",
@@ -604,7 +604,7 @@ def do_cluster_create(cs, args):
 
         availability_zones = _get_availability_zones(instance_str)
         if availability_zones:
-            instance_info["availability-zone"] = availability_zones
+            instance_info["availability_zone"] = availability_zones
 
         instances.append(instance_info)
 
