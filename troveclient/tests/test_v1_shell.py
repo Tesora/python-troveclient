@@ -98,10 +98,6 @@ class ShellTest(utils.TestCase):
         self.run_command('delete 1234')
         self.assert_called('DELETE', '/instances/1234')
 
-    def test_instance_update(self):
-        self.run_command('update 1234')
-        self.assert_called('PATCH', '/instances/1234')
-
     def test_resize_instance(self):
         self.run_command('resize-instance 1234 1')
         self.assert_called('POST', '/instances/1234/action')
@@ -400,6 +396,10 @@ class ShellTest(utils.TestCase):
     def test_configuration_detach(self):
         self.run_command('configuration-detach 1234')
         self.assert_called('PUT', '/instances/1234')
+
+    def test_upgrade(self):
+        self.run_command('upgrade 1234 c-123')
+        self.assert_called('PATCH', '/instances/1234')
 
     def test_metadata_edit(self):
         self.run_command('metadata-edit 1234 key-123 value-123')
