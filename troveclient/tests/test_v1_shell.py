@@ -180,8 +180,7 @@ class ShellTest(utils.TestCase):
             {'instance': {
                 'volume': {'size': 1, 'type': 'lvm'},
                 'flavorRef': 1,
-                'name': 'test-member-1',
-                'replica_count': 1
+                'name': 'test-member-1'
             }})
 
     def test_boot_by_flavor_name(self):
@@ -192,9 +191,73 @@ class ShellTest(utils.TestCase):
             {'instance': {
                 'volume': {'size': 1, 'type': 'lvm'},
                 'flavorRef': 1,
-                'name': 'test-member-1',
+                'name': 'test-member-1'
+            }})
+
+    def test_boot_repl_set(self):
+        self.run_command('create repl-1 1 --size 1 --locality=anti-affinity '
+                         '--replica_count=4')
+        self.assert_called_anytime(
+            'POST', '/instances',
+            {'instance': {
+                'volume': {'size': 1, 'type': None},
+                'flavorRef': 1,
+                'name': 'repl-1',
+                'replica_count': 4,
+                'locality': 'anti-affinity'
+            }})
+
+    def test_boot_replica(self):
+        self.run_command('create slave-1 1 --size 1 --replica_of=master_1')
+        self.assert_called_anytime(
+            'POST', '/instances',
+            {'instance': {
+                'volume': {'size': 1, 'type': None},
+                'flavorRef': 1,
+                'name': 'slave-1',
+                'replica_of': 'myid',
                 'replica_count': 1
             }})
+
+    def test_boot_replica_count(self):
+        self.run_command('create slave-1 1 --size 1 --replica_of=master_1 '
+                         '--replica_count=3')
+        self.assert_called_anytime(
+            'POST', '/instances',
+            {'instance': {
+                'volume': {'size': 1, 'type': None},
+                'flavorRef': 1,
+                'name': 'slave-1',
+                'replica_of': 'myid',
+                'replica_count': 3
+            }})
+
+    def test_boot_locality(self):
+        self.run_command('create master-1 1 --size 1 --locality=affinity')
+        self.assert_called_anytime(
+            'POST', '/instances',
+            {'instance': {
+                'volume': {'size': 1, 'type': None},
+                'flavorRef': 1,
+                'name': 'master-1',
+                'locality': 'affinity'
+            }})
+
+    def test_boot_bad_locality(self):
+        cmd = 'create master-1 1 --size 1 --locality=bad'
+        self.assertRaisesRegexp(
+            exceptions.ValidationError,
+            "Locality 'bad' not supported.",
+            self.run_command, cmd)
+
+    def test_boot_locality_error(self):
+        cmd = ('create slave-1 1 --size 1 --locality=affinity '
+               '--replica_of=master_1')
+        self.assertRaisesRegexp(
+            exceptions.ValidationError,
+            'Cannot specify locality when adding replicas to existing '
+            'master.',
+            self.run_command, cmd)
 
     def test_boot_nic_error(self):
         cmd = ('create test-member-1 1 --size 1 --volume_type lvm '
