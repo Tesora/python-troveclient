@@ -262,13 +262,6 @@ class ShellTest(utils.TestCase):
                 'locality': 'affinity'
             }})
 
-    def test_boot_bad_locality(self):
-        cmd = 'create master-1 1 --size 1 --locality=bad'
-        self.assertRaisesRegexp(
-            exceptions.ValidationError,
-            "Locality 'bad' not supported.",
-            self.run_command, cmd)
-
     def test_boot_locality_error(self):
         cmd = ('create slave-1 1 --size 1 --locality=affinity '
                '--replica_of=master_1')
