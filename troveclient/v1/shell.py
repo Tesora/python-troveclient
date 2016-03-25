@@ -27,7 +27,6 @@ NIC_ERROR = ("Invalid NIC argument: %s. Must specify either net-id or port-id "
              "but not both. Please refer to help.")
 NO_LOG_FOUND_ERROR = "ERROR: No published '%s' log was found for %s."
 LOCALITY_DOMAIN = ['affinity', 'anti-affinity']
-LOCALITY_DOMAIN_MSG = "Must be one of ['%s']" % "', '".join(LOCALITY_DOMAIN)
 
 try:
     import simplejson as json
@@ -470,8 +469,9 @@ def do_update(cs, args):
 @utils.arg('--locality',
            metavar='<policy>',
            default=None,
-           help='Locality policy to use when creating replicas. %s' %
-           LOCALITY_DOMAIN_MSG)
+           choices=LOCALITY_DOMAIN,
+           help='Locality policy to use when creating replicas. Choose '
+                'one of %(choices)s.')
 @utils.service_type('database')
 def do_create(cs, args):
     """Creates a new instance."""
@@ -491,10 +491,6 @@ def do_create(cs, args):
     locality = None
     if args.locality:
         locality = args.locality
-        if locality not in LOCALITY_DOMAIN:
-            raise exceptions.ValidationError(
-                "Locality '%s' not supported. %s" %
-                (locality, LOCALITY_DOMAIN_MSG))
         if replica_of:
             raise exceptions.ValidationError(
                 'Cannot specify locality when adding replicas to existing '
@@ -681,6 +677,12 @@ def _strip_option(opts_str, opt_name, is_required=True,
                 "(where net-id=network_id, v4-fixed-ip=IPv4r_fixed_address, "
                 "port-id=port_id), availability_zone=<AZ_hint_for_Nova>, "
                 "module=<module_name_or_id>.")
+@utils.arg('--locality',
+           metavar='<policy>',
+           default=None,
+           choices=LOCALITY_DOMAIN,
+           help='Locality policy to use when creating cluster. Choose '
+                'one of %(choices)s.')
 @utils.service_type('database')
 def do_cluster_create(cs, args):
     """Creates a new cluster."""
@@ -719,7 +721,8 @@ def do_cluster_create(cs, args):
     cluster = cs.clusters.create(args.name,
                                  args.datastore,
                                  args.datastore_version,
-                                 instances=instances)
+                                 instances=instances,
+                                 locality=args.locality)
     cluster._info['task_name'] = cluster.task['name']
     cluster._info['task_description'] = cluster.task['description']
     del cluster._info['task']
