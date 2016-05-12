@@ -164,6 +164,7 @@ class FakeHTTPClient(base_client.HTTPClient):
                 "ip": ["10.0.0.13"],
                 "volume": {"size": 2},
                 "flavor": {"id": "2"},
+                "region": "regionOne",
                 "datastore": {"version": "5.6", "type": "mysql"}},
             {
                 "id": "5678",
@@ -172,6 +173,7 @@ class FakeHTTPClient(base_client.HTTPClient):
                 "ip": ["10.0.0.14"],
                 "volume": {"size": 2},
                 "flavor": {"id": "2"},
+                "region": "regionOne",
                 "datastore": {"version": "5.6", "type": "mysql"}}]})
 
     def get_instances_1234(self, **kw):

@@ -297,7 +297,7 @@ def _print_instances(instances):
                 setattr(instance, 'datastore_version',
                         instance.datastore['version'])
             setattr(instance, 'datastore', instance.datastore['type'])
-    utils.print_list(instances, ['id', 'name', 'datastore',
+    utils.print_list(instances, ['id', 'region', 'name', 'datastore',
                                  'datastore_version', 'status',
                                  'flavor_id', 'size'])
 
@@ -510,6 +510,11 @@ def do_update(cs, args):
            choices=LOCALITY_DOMAIN,
            help='Locality policy to use when creating replicas. Choose '
                 'one of %(choices)s.')
+@utils.arg('--region', metavar='<region>',
+           type=str,
+           default=None,
+           help=argparse.SUPPRESS)
+#           help='Name of region in which to create the instance.')
 @utils.service_type('database')
 def do_create(cs, args):
     """Creates a new instance."""
@@ -560,7 +565,8 @@ def do_create(cs, args):
                                    replica_of=replica_of,
                                    replica_count=replica_count,
                                    modules=modules,
-                                   locality=locality)
+                                   locality=locality,
+                                   region_name=args.region)
     _print_instance(instance)
 
 
@@ -626,6 +632,10 @@ def _get_volume(opts_str):
 
 def _get_availability_zone(opts_str):
     return _strip_option(opts_str, 'availability_zone', is_required=False)
+
+
+def _get_region(cs, opts_str):
+    return _strip_option(opts_str, 'region', is_required=False)
 
 
 def _get_modules(cs, opts_str):
@@ -732,6 +742,10 @@ def _parse_instance_options(cs, instance_options, for_grow=False):
                 instance_opts, 'name', is_required=False)
             if name:
                 instance_info["name"] = name
+
+        region, instance_opts = _get_region(cs, instance_opts)
+        if region:
+            instance_info["region"] = region
 
         if instance_opts:
             raise exceptions.ValidationError(
@@ -953,9 +967,9 @@ def do_backup_create(cs, args):
 @utils.arg('backup', metavar='<backup>',
            help='Backup ID of the source backup.',
            default=None)
-@utils.arg('--region', metavar='<region>', help='Region where the source '
-                                                'backup resides.',
-           default=None)
+@utils.arg('--region', metavar='<region>', default=None,
+           # help='Region where the source backup resides.')
+           help=argparse.SUPPRESS)
 @utils.arg('--description', metavar='<description>',
            default=None,
            help='An optional description for the backup.')
