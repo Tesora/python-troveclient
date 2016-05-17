@@ -362,7 +362,7 @@ def do_cluster_instances(cs, args):
 def do_cluster_grow(cs, args):
     """Adds more instances to a cluster."""
     cluster = _find_cluster(cs, args.cluster)
-    instances = _parse_instance_options(cs, args.instances)
+    instances = _parse_instance_options(cs, args.instances, for_grow=True)
     if len(instances) == 0:
         raise exceptions.MissingArgs(['instance'])
 
@@ -694,7 +694,7 @@ def _strip_option(opts_str, opt_name, is_required=True,
     return opt_value, opts_str.strip().strip(",")
 
 
-def _parse_instance_options(cs, instance_options):
+def _parse_instance_options(cs, instance_options, for_grow=False):
     instances = []
     for instance_opts in instance_options:
         instance_info = {}
@@ -716,6 +716,22 @@ def _parse_instance_options(cs, instance_options):
         modules, instance_opts = _get_modules(cs, instance_opts)
         if modules:
             instance_info["modules"] = modules
+
+        if for_grow:
+            instance_type, instance_opts = _strip_option(
+                instance_opts, 'type', is_required=False)
+            if instance_type:
+                instance_info["type"] = instance_type
+
+            related_to, instance_opts = _strip_option(
+                instance_opts, 'related_to', is_required=False)
+            if instance_type:
+                instance_info["related_to"] = related_to
+
+            name, instance_opts = _strip_option(
+                instance_opts, 'name', is_required=False)
+            if name:
+                instance_info["name"] = name
 
         if instance_opts:
             raise exceptions.ValidationError(
