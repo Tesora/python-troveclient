@@ -298,9 +298,9 @@ def _print_instances(instances):
                 setattr(instance, 'datastore_version',
                         instance.datastore['version'])
             setattr(instance, 'datastore', instance.datastore['type'])
-    utils.print_list(instances, ['id', 'region', 'name', 'datastore',
+    utils.print_list(instances, ['id', 'name', 'datastore',
                                  'datastore_version', 'status',
-                                 'flavor_id', 'size'])
+                                 'flavor_id', 'size', 'region'])
 
 
 @utils.arg('--limit', metavar='<limit>', type=int, default=None,
