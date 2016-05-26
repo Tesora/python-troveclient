@@ -1614,7 +1614,10 @@ def do_module_list(cs, args):
                   'datastore_version', 'auto_apply', 'tenant', 'visible']
     is_admin = False
     if hasattr(cs.client, 'auth'):
-        roles = cs.client.auth.auth_ref['user']['roles']
+        if 'roles' in cs.client.auth.auth_ref['user']:
+            roles = cs.client.auth.auth_ref['user']['roles']
+        else:
+            roles = cs.client.auth.auth_ref['roles']
         role_names = [role['name'] for role in roles]
         is_admin = 'admin' in role_names
     if not is_admin:
