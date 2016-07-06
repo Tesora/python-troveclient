@@ -1021,21 +1021,21 @@ def do_schedule_list(cs, args):
                      order_by='next_execution_time')
 
 
-@utils.arg('name', metavar='<name>', help='Name of the schedule.')
+@utils.arg('id', metavar='<schedule id>', help='Id of the schedule.')
 @utils.service_type('database')
 def do_schedule_show(cs, args):
     """Shows details of a schedule."""
-    _print_object(cs.backups.schedule_show(args.name))
+    _print_object(cs.backups.schedule_show(args.id))
 
 
-@utils.arg('name', metavar='<name>', help='Name of the schedule.')
+@utils.arg('id', metavar='<schedule id>', help='Id of the schedule.')
 @utils.service_type('database')
 def do_schedule_delete(cs, args):
     """Deletes a schedule."""
-    cs.backups.schedule_delete(args.name)
+    cs.backups.schedule_delete(args.id)
 
 
-@utils.arg('name', metavar='<name>', help='Name of the schedule.')
+@utils.arg('id', metavar='<schedule id>', help='Id of the schedule.')
 @utils.arg('--limit', metavar='<limit>',
            default=None, type=int,
            help='Return up to N number of the most recent executions.')
@@ -1046,7 +1046,7 @@ def do_schedule_delete(cs, args):
 @utils.service_type('database')
 def do_execution_list(cs, args):
     """Lists executions of a scheduled backup of an instance."""
-    executions = cs.backups.execution_list(args.name, marker=args.marker,
+    executions = cs.backups.execution_list(args.id, marker=args.marker,
                                            limit=args.limit)
 
     utils.print_list(executions, ['id', 'created_at', 'state', 'output'],
