@@ -223,7 +223,8 @@ def do_flavor_list(cs, args):
                      labels={'ram': 'RAM'})
 
 
-@utils.arg('flavor', metavar='<flavor>', help='ID or name of the flavor.')
+@utils.arg('flavor', metavar='<flavor>', type=str,
+           help='ID or name of the flavor.')
 @utils.service_type('database')
 def do_flavor_show(cs, args):
     """Shows details of a flavor."""
@@ -487,7 +488,8 @@ def do_update(cs, args):
            help="Volume type. Optional when volume support is enabled.")
 @utils.arg('flavor',
            metavar='<flavor>',
-           help='Flavor ID or name of the instance.')
+           type=str,
+           help='A flavor name or ID.')
 @utils.arg('--databases', metavar='<database>',
            help='Optional list of databases.',
            nargs="+", default=[])
@@ -833,6 +835,7 @@ def do_cluster_create(cs, args):
            help='ID or name of the instance.')
 @utils.arg('flavor',
            metavar='<flavor>',
+           type=str,
            help='New flavor of the instance.')
 @utils.service_type('database')
 def do_resize_instance(cs, args):
