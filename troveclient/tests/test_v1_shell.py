@@ -179,6 +179,10 @@ class ShellTest(utils.TestCase):
         self.run_command('delete 1234')
         self.assert_called('DELETE', '/instances/1234')
 
+    def test_instance_force_delete(self):
+        self.run_command('force-delete 1234')
+        self.assert_called('DELETE', '/instances/1234')
+
     def test_resize_instance(self):
         self.run_command('resize-instance 1234 1')
         self.assert_called('POST', '/instances/1234/action')
@@ -271,6 +275,10 @@ class ShellTest(utils.TestCase):
 
     def test_cluster_delete(self):
         self.run_command('cluster-delete cls-1234')
+        self.assert_called('DELETE', '/clusters/cls-1234')
+
+    def test_cluster_force_delete(self):
+        self.run_command('cluster-force-delete cls-1234')
         self.assert_called('DELETE', '/clusters/cls-1234')
 
     def test_boot(self):
