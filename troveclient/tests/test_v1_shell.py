@@ -718,7 +718,8 @@ class ShellTest(utils.TestCase):
             'POST', '/backups',
             {'backup': {
                 'instance': '1234',
-                'name': 'bkp_1'
+                'name': 'bkp_1',
+                'incremental': False
             }})
 
     def test_backup_copy(self):
@@ -727,6 +728,7 @@ class ShellTest(utils.TestCase):
             'POST', '/backups',
             {'backup': {
                 'name': 'new_bkp',
+                'incremental': False,
                 'backup': {'region': None, 'id': 'bk-1234'}
             }})
 
