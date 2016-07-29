@@ -129,6 +129,8 @@ class ShellTest(utils.TestCase):
              {'quotes_required': True, 'allow_multiple': True},
              ["net-id=net", "port-id=port"],
              "flavor=10,, module=test", None],
+            ["volume", "novolume=1", {}, "", "novolume=1",
+             "Missing option \'volume\'"]
         ]
 
         count = 0

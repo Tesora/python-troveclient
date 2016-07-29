@@ -17,6 +17,7 @@
 from __future__ import print_function
 
 import argparse
+import re
 import sys
 import time
 
@@ -620,11 +621,14 @@ def _unquote(value):
 
 
 def _get_volume(opts_str):
-    volume_size, opts_str = _strip_option(opts_str, 'volume', is_required=True)
+    volume_size, opts_str = _strip_option(opts_str, 'volume',
+                                          is_required=False)
     volume_type, opts_str = _strip_option(opts_str, 'volume_type',
                                           is_required=False)
 
-    volume_info = {"size": volume_size}
+    volume_info = dict()
+    if volume_size:
+        volume_info.update({"size": volume_size})
     if volume_type:
         volume_info.update({"type": volume_type})
 
@@ -653,7 +657,7 @@ def _strip_option(opts_str, opt_name, is_required=True,
                   quotes_required=False, allow_multiple=False):
     opt_value = [] if allow_multiple else None
     opts_str = opts_str.strip().strip(",")
-    if opt_name in opts_str:
+    if re.search(r'(^|,[ ]*){}='.format(opt_name), opts_str):
         try:
             split_str = '%s=' % opt_name
             parts = opts_str.split(split_str)
@@ -713,7 +717,8 @@ def _parse_instance_options(cs, instance_options, for_grow=False):
         flavor, instance_opts = _get_flavor(cs, instance_opts)
         instance_info["flavorRef"] = flavor
         volume, instance_opts = _get_volume(instance_opts)
-        instance_info["volume"] = volume
+        if volume:
+            instance_info["volume"] = volume
 
         nics, instance_opts = _get_networks(instance_opts)
         if nics:
@@ -757,6 +762,33 @@ def _parse_instance_options(cs, instance_options, for_grow=False):
     return instances
 
 
+def _parse_properties(extended_properties):
+    properties = {}
+    if extended_properties:
+        remaining_props = extended_properties
+        supported_properties = [
+            # Oracle RAC
+            'storage_type', 'database',
+            'votedisk_mount', 'registry_mount', 'database_mount',
+            'subnet', 'subnetpool', 'network', 'router', 'prefixlen',
+        ]
+
+        for supported_property in supported_properties:
+            try:
+                value, remaining_props = _strip_option(
+                    remaining_props, supported_property, is_required=False)
+            except exceptions.ValidationError:
+                raise exceptions.ValidationError(
+                    "Invalid value for property " + supported_property)
+            if value:
+                properties[supported_property] = value
+
+        if remaining_props:
+            raise exceptions.ValidationError(
+                "Unknown properties(s) '%s'" % remaining_props)
+    return properties
+
+
 @utils.arg('name',
            metavar='<name>',
            type=str,
@@ -776,6 +808,11 @@ def _parse_instance_options(cs, instance_options, for_grow=False):
            choices=LOCALITY_DOMAIN,
            help='Locality policy to use when creating cluster. Choose '
                 'one of %(choices)s.')
+@utils.arg('--property',
+           dest='extended_properties',
+           default=None,
+           metavar='<key=value>',
+           help="Arbitrary key/value properties for the datastore.")
 @utils.service_type('database')
 def do_cluster_create(cs, args):
     """Creates a new cluster."""
@@ -783,11 +820,14 @@ def do_cluster_create(cs, args):
     if len(instances) == 0:
         raise exceptions.MissingArgs(['instance'])
 
+    properties = _parse_properties(args.extended_properties)
+
     cluster = cs.clusters.create(args.name,
                                  args.datastore,
                                  args.datastore_version,
                                  instances=instances,
-                                 locality=args.locality)
+                                 locality=args.locality,
+                                 extended_properties=properties)
     _print_cluster(cluster)
 
 
