@@ -17,12 +17,22 @@
 from __future__ import print_function
 
 import argparse
+import re
 import sys
 import time
 
 INSTANCE_METAVAR = '"opt=<value>[,opt=<value> ...] "'
 INSTANCE_ERROR = ("Instance argument(s) must be of the form --instance "
                   + INSTANCE_METAVAR + " - see help for details.")
+INSTANCE_HELP = ("Add an instance to the cluster.  Specify multiple "
+                 "times to create multiple instances.  "
+                 "Valid options are: flavor=<flavor_name_or_id>, "
+                 "volume=<disk_size_in_GB>, volume_type=<type>, "
+                 "nic='<net-id=<net-uuid>, v4-fixed-ip=<ip-addr>, "
+                 "port-id=<port-uuid>>' "
+                 "(where net-id=network_id, v4-fixed-ip=IPv4r_fixed_address, "
+                 "port-id=port_id), availability_zone=<AZ_hint_for_Nova>, "
+                 "module=<module_name_or_id>.")
 NIC_ERROR = ("Invalid NIC argument: %s. Must specify either net-id or port-id "
              "but not both. Please refer to help.")
 NO_LOG_FOUND_ERROR = "ERROR: No published '%s' log was found for %s."
@@ -89,6 +99,29 @@ def _print_instance(instance):
     if hasattr(instance, 'replicas'):
         replicas = [replica['id'] for replica in instance.replicas]
         info['replicas'] = ', '.join(replicas)
+    if hasattr(instance, 'fault'):
+        info.pop('fault', None)
+        info['fault'] = instance.fault['message']
+        info['fault_date'] = instance.fault['created']
+        if 'details' in instance.fault and instance.fault['details']:
+            info['fault_details'] = instance.fault['details']
+    info.pop('links', None)
+    utils.print_dict(info)
+
+
+def _print_cluster(cluster, include_all=False):
+
+    info = cluster._info.copy()
+    info['datastore'] = cluster.datastore['type']
+    info['datastore_version'] = cluster.datastore['version']
+    info['task_name'] = cluster.task['name']
+    info['task_description'] = cluster.task['description']
+    info.pop('task', None)
+    if include_all and hasattr(cluster, 'ip'):
+        info['ip'] = ', '.join(cluster.ip)
+    instances = info.pop('instances', None)
+    if instances:
+        info['instance_count'] = len(instances)
     info.pop('links', None)
     utils.print_dict(info)
 
@@ -135,6 +168,11 @@ def _find_cluster(cs, cluster):
 def _find_flavor(cs, flavor):
     """Get a flavor by ID."""
     return utils.find_resource(cs.flavors, flavor)
+
+
+def _find_volume_type(cs, volume_type):
+    """Get a volume type by ID."""
+    return utils.find_resource(cs.volume_types, volume_type)
 
 
 def _find_backup(cs, backup):
@@ -186,12 +224,45 @@ def do_flavor_list(cs, args):
                      labels={'ram': 'RAM'})
 
 
-@utils.arg('flavor', metavar='<flavor>', help='ID or name of the flavor.')
+@utils.arg('flavor', metavar='<flavor>', type=str,
+           help='ID or name of the flavor.')
 @utils.service_type('database')
 def do_flavor_show(cs, args):
     """Shows details of a flavor."""
     flavor = _find_flavor(cs, args.flavor)
     _print_object(flavor)
+
+
+# Volume type related calls
+@utils.arg('--datastore_type', metavar='<datastore_type>',
+           default=None,
+           help='Type of the datastore. For eg: mysql.')
+@utils.arg("--datastore_version_id", metavar="<datastore_version_id>",
+           default=None, help="ID of the datastore version.")
+@utils.service_type('database')
+def do_volume_type_list(cs, args):
+    """Lists available volume types."""
+    if args.datastore_type and args.datastore_version_id:
+        volume_types = cs.volume_types.\
+            list_datastore_version_associated_volume_types(
+                args.datastore_type, args.datastore_version_id
+            )
+    elif not args.datastore_type and not args.datastore_version_id:
+        volume_types = cs.volume_types.list()
+    else:
+        raise exceptions.MissingArgs(['datastore_type',
+                                      'datastore_version_id'])
+
+    utils.print_list(volume_types, ['id', 'name', 'is_public', 'description'])
+
+
+@utils.arg('volume_type', metavar='<volume_type>',
+           help='ID or name of the volume type.')
+@utils.service_type('database')
+def do_volume_type_show(cs, args):
+    """Shows details of a volume type."""
+    volume_type = _find_volume_type(cs, args.volume_type)
+    _print_object(volume_type)
 
 
 # Instance related calls
@@ -231,7 +302,7 @@ def _print_instances(instances):
             setattr(instance, 'datastore', instance.datastore['type'])
     utils.print_list(instances, ['id', 'name', 'datastore',
                                  'datastore_version', 'status',
-                                 'flavor_id', 'size'])
+                                 'flavor_id', 'size', 'region'])
 
 
 @utils.arg('--limit', metavar='<limit>', type=int, default=None,
@@ -268,17 +339,7 @@ def do_show(cs, args):
 def do_cluster_show(cs, args):
     """Shows details of a cluster."""
     cluster = _find_cluster(cs, args.cluster)
-    info = cluster._info.copy()
-    info['datastore'] = cluster.datastore['type']
-    info['datastore_version'] = cluster.datastore['version']
-    info['task_name'] = cluster.task['name']
-    info['task_description'] = cluster.task['description']
-    del info['task']
-    if hasattr(cluster, 'ip'):
-        info['ip'] = ', '.join(cluster.ip)
-    del info['instances']
-    cluster._info = info
-    _print_object(cluster)
+    _print_cluster(cluster, include_all=True)
 
 
 @utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
@@ -298,36 +359,16 @@ def do_cluster_instances(cs, args):
 
 @utils.arg('--instance', metavar=INSTANCE_METAVAR,
            action='append', dest='instances', default=[],
-           help="Add an instance to the cluster. Specify multiple "
-                "times to create multiple instances.  Valid options are: "
-                "name=<name>, flavor=<flavor_name_or_id>, volume=<volume>, "
-                "module=<module_name_or_id>.")
+           help=INSTANCE_HELP)
 @utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
 @utils.service_type('database')
 def do_cluster_grow(cs, args):
     """Adds more instances to a cluster."""
     cluster = _find_cluster(cs, args.cluster)
-    instances = []
-    for instance_opts in args.instances:
-        instance_info = {}
-        for z in instance_opts.split(","):
-            for (k, v) in [z.split("=", 1)[:2]]:
-                if k == "name":
-                    instance_info[k] = v
-                elif k == "flavor":
-                    flavor_id = _find_flavor(cs, v).id
-                    instance_info["flavorRef"] = str(flavor_id)
-                elif k == "volume":
-                    instance_info["volume"] = {"size": v}
-                else:
-                    instance_info[k] = v
-        if not instance_info.get('flavorRef'):
-            raise exceptions.CommandError(
-                'flavor is required. '
-                'Instance arguments must be of the form '
-                '--instance <flavor=flavor_name_or_id,volume=volume,data=data>'
-            )
-        instances.append(instance_info)
+    instances = _parse_instance_options(cs, args.instances, for_grow=True)
+    if len(instances) == 0:
+        raise exceptions.MissingArgs(['instance'])
+
     cs.clusters.grow(cluster, instances=instances)
 
 
@@ -353,12 +394,48 @@ def do_delete(cs, args):
     cs.instances.delete(instance)
 
 
+@utils.arg('instance', metavar='<instance>',
+           help='ID or name of the instance.')
+@utils.service_type('database')
+def do_force_delete(cs, args):
+    """Force delete an instance."""
+    instance = _find_instance(cs, args.instance)
+    cs.instances.reset_status(instance)
+    cs.instances.delete(instance)
+
+
+@utils.arg('instance', metavar='<instance>',
+           help='ID or name of the instance.')
+@utils.service_type('database')
+def do_reset_status(cs, args):
+    """Set the status to NONE."""
+    instance = _find_instance(cs, args.instance)
+    cs.instances.reset_status(instance=instance)
+
+
 @utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
 @utils.service_type('database')
 def do_cluster_delete(cs, args):
     """Deletes a cluster."""
     cluster = _find_cluster(cs, args.cluster)
     cs.clusters.delete(cluster)
+
+
+@utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
+@utils.service_type('database')
+def do_cluster_force_delete(cs, args):
+    """Force delete a cluster"""
+    cluster = _find_cluster(cs, args.cluster)
+    cs.clusters.reset_status(cluster)
+    cs.clusters.delete(cluster)
+
+
+@utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
+@utils.service_type('database')
+def do_cluster_reset_status(cs, args):
+    """Set the cluster task to NONE."""
+    cluster = _find_cluster(cs, args.cluster)
+    cs.clusters.reset_status(cluster)
 
 
 @utils.arg('instance',
@@ -412,7 +489,8 @@ def do_update(cs, args):
            help="Volume type. Optional when volume support is enabled.")
 @utils.arg('flavor',
            metavar='<flavor>',
-           help='Flavor ID or name of the instance.')
+           type=str,
+           help='A flavor name or ID.')
 @utils.arg('--databases', metavar='<database>',
            help='Optional list of databases.',
            nargs="+", default=[])
@@ -472,6 +550,11 @@ def do_update(cs, args):
            choices=LOCALITY_DOMAIN,
            help='Locality policy to use when creating replicas. Choose '
                 'one of %(choices)s.')
+@utils.arg('--region', metavar='<region>',
+           type=str,
+           default=None,
+           help=argparse.SUPPRESS)
+#           help='Name of region in which to create the instance.')
 @utils.service_type('database')
 def do_create(cs, args):
     """Creates a new instance."""
@@ -522,7 +605,8 @@ def do_create(cs, args):
                                    replica_of=replica_of,
                                    replica_count=replica_count,
                                    modules=modules,
-                                   locality=locality)
+                                   locality=locality,
+                                   region_name=args.region)
     _print_instance(instance)
 
 
@@ -575,11 +659,14 @@ def _unquote(value):
 
 
 def _get_volume(opts_str):
-    volume_size, opts_str = _strip_option(opts_str, 'volume', is_required=True)
+    volume_size, opts_str = _strip_option(opts_str, 'volume',
+                                          is_required=False)
     volume_type, opts_str = _strip_option(opts_str, 'volume_type',
                                           is_required=False)
 
-    volume_info = {"size": volume_size}
+    volume_info = dict()
+    if volume_size:
+        volume_info.update({"size": volume_size})
     if volume_type:
         volume_info.update({"type": volume_type})
 
@@ -588,6 +675,10 @@ def _get_volume(opts_str):
 
 def _get_availability_zone(opts_str):
     return _strip_option(opts_str, 'availability_zone', is_required=False)
+
+
+def _get_region(cs, opts_str):
+    return _strip_option(opts_str, 'region', is_required=False)
 
 
 def _get_modules(cs, opts_str):
@@ -604,7 +695,7 @@ def _strip_option(opts_str, opt_name, is_required=True,
                   quotes_required=False, allow_multiple=False):
     opt_value = [] if allow_multiple else None
     opts_str = opts_str.strip().strip(",")
-    if opt_name in opts_str:
+    if re.search(r'(^|,[ ]*){}='.format(opt_name), opts_str):
         try:
             split_str = '%s=' % opt_name
             parts = opts_str.split(split_str)
@@ -656,44 +747,16 @@ def _strip_option(opts_str, opt_name, is_required=True,
     return opt_value, opts_str.strip().strip(",")
 
 
-@utils.arg('name',
-           metavar='<name>',
-           type=str,
-           help='Name of the cluster.')
-@utils.arg('datastore',
-           metavar='<datastore>',
-           help='A datastore name or ID.')
-@utils.arg('datastore_version',
-           metavar='<datastore_version>',
-           help='A datastore version name or ID.')
-@utils.arg('--instance', metavar=INSTANCE_METAVAR,
-           action='append', dest='instances', default=[],
-           help="Create an instance for the cluster.  Specify multiple "
-                "times to create multiple instances.  "
-                "Valid options are: flavor=<flavor_name_or_id>, "
-                "volume=<disk_size_in_GB>, volume_type=<type>, "
-                "nic='<net-id=<net-uuid>, v4-fixed-ip=<ip-addr>, "
-                "port-id=<port-uuid>>' "
-                "(where net-id=network_id, v4-fixed-ip=IPv4r_fixed_address, "
-                "port-id=port_id), availability_zone=<AZ_hint_for_Nova>, "
-                "module=<module_name_or_id>.")
-@utils.arg('--locality',
-           metavar='<policy>',
-           default=None,
-           choices=LOCALITY_DOMAIN,
-           help='Locality policy to use when creating cluster. Choose '
-                'one of %(choices)s.')
-@utils.service_type('database')
-def do_cluster_create(cs, args):
-    """Creates a new cluster."""
+def _parse_instance_options(cs, instance_options, for_grow=False):
     instances = []
-    for instance_opts in args.instances:
+    for instance_opts in instance_options:
         instance_info = {}
 
         flavor, instance_opts = _get_flavor(cs, instance_opts)
         instance_info["flavorRef"] = flavor
         volume, instance_opts = _get_volume(instance_opts)
-        instance_info["volume"] = volume
+        if volume:
+            instance_info["volume"] = volume
 
         nics, instance_opts = _get_networks(instance_opts)
         if nics:
@@ -708,28 +771,102 @@ def do_cluster_create(cs, args):
         if modules:
             instance_info["modules"] = modules
 
+        if for_grow:
+            instance_type, instance_opts = _strip_option(
+                instance_opts, 'type', is_required=False)
+            if instance_type:
+                instance_info["type"] = instance_type
+
+            related_to, instance_opts = _strip_option(
+                instance_opts, 'related_to', is_required=False)
+            if instance_type:
+                instance_info["related_to"] = related_to
+
+            name, instance_opts = _strip_option(
+                instance_opts, 'name', is_required=False)
+            if name:
+                instance_info["name"] = name
+
+        region, instance_opts = _get_region(cs, instance_opts)
+        if region:
+            instance_info["region"] = region
+
         if instance_opts:
             raise exceptions.ValidationError(
                 "Unknown option(s) '%s' specified for instance" %
                 instance_opts)
 
         instances.append(instance_info)
+    return instances
 
+
+def _parse_properties(extended_properties):
+    properties = {}
+    if extended_properties:
+        remaining_props = extended_properties
+        supported_properties = [
+            # Oracle RAC
+            'storage_type', 'database',
+            'votedisk_mount', 'registry_mount', 'database_mount',
+            'subnet', 'subnetpool', 'network', 'router', 'prefixlen',
+        ]
+
+        for supported_property in supported_properties:
+            try:
+                value, remaining_props = _strip_option(
+                    remaining_props, supported_property, is_required=False)
+            except exceptions.ValidationError:
+                raise exceptions.ValidationError(
+                    "Invalid value for property " + supported_property)
+            if value:
+                properties[supported_property] = value
+
+        if remaining_props:
+            raise exceptions.ValidationError(
+                "Unknown properties(s) '%s'" % remaining_props)
+    return properties
+
+
+@utils.arg('name',
+           metavar='<name>',
+           type=str,
+           help='Name of the cluster.')
+@utils.arg('datastore',
+           metavar='<datastore>',
+           help='A datastore name or ID.')
+@utils.arg('datastore_version',
+           metavar='<datastore_version>',
+           help='A datastore version name or ID.')
+@utils.arg('--instance', metavar=INSTANCE_METAVAR,
+           action='append', dest='instances', default=[],
+           help=INSTANCE_HELP)
+@utils.arg('--locality',
+           metavar='<policy>',
+           default=None,
+           choices=LOCALITY_DOMAIN,
+           help='Locality policy to use when creating cluster. Choose '
+                'one of %(choices)s.')
+@utils.arg('--property',
+           dest='extended_properties',
+           default=None,
+           metavar='<key=value>',
+           help="Arbitrary key/value properties for the datastore.")
+@utils.service_type('database')
+def do_cluster_create(cs, args):
+    """Creates a new cluster."""
+    instances = _parse_instance_options(cs, args.instances)
     if len(instances) == 0:
         raise exceptions.MissingArgs(['instance'])
+
+    properties = _parse_properties(args.extended_properties)
 
     cluster = cs.clusters.create(args.name,
                                  args.datastore,
                                  args.datastore_version,
                                  instances=instances,
-                                 locality=args.locality)
-    cluster._info['task_name'] = cluster.task['name']
-    cluster._info['task_description'] = cluster.task['description']
-    del cluster._info['task']
-    cluster._info['datastore'] = cluster.datastore['type']
-    cluster._info['datastore_version'] = cluster.datastore['version']
-    del cluster._info['instances']
-    _print_object(cluster)
+                                 locality=args.locality,
+                                 extended_properties=properties)
+    _print_cluster(cluster)
 
 
 @utils.arg('instance',
@@ -738,6 +875,7 @@ def do_cluster_create(cs, args):
            help='ID or name of the instance.')
 @utils.arg('flavor',
            metavar='<flavor>',
+           type=str,
            help='New flavor of the instance.')
 @utils.service_type('database')
 def do_resize_instance(cs, args):
@@ -895,13 +1033,18 @@ def do_backup_delete(cs, args):
 @utils.arg('--parent', metavar='<parent>', default=None,
            help='Optional ID of the parent backup to perform an'
            ' incremental backup from.')
+@utils.arg('--incremental', action='store_true', default=False,
+           help='Create an incremental backup based on the last'
+                ' full or incremental backup. It will create a'
+                ' full backup if no existing backup found.')
 @utils.service_type('database')
 def do_backup_create(cs, args):
     """Creates a backup of an instance."""
     instance = _find_instance(cs, args.instance)
     backup = cs.backups.create(args.name, instance,
                                description=args.description,
-                               parent_id=args.parent)
+                               parent_id=args.parent,
+                               incremental=args.incremental)
     _print_object(backup)
 
 
@@ -909,9 +1052,9 @@ def do_backup_create(cs, args):
 @utils.arg('backup', metavar='<backup>',
            help='Backup ID of the source backup.',
            default=None)
-@utils.arg('--region', metavar='<region>', help='Region where the source '
-                                                'backup resides.',
-           default=None)
+@utils.arg('--region', metavar='<region>', default=None,
+           # help='Region where the source backup resides.')
+           help=argparse.SUPPRESS)
 @utils.arg('--description', metavar='<description>',
            default=None,
            help='An optional description for the backup.')
@@ -927,6 +1070,80 @@ def do_backup_copy(cs, args):
                                description=args.description,
                                parent_id=None, backup=backup_ref,)
     _print_object(backup)
+
+
+@utils.arg('instance', metavar='<instance>',
+           help='ID or name of the instance.')
+@utils.arg('pattern', metavar='<pattern>',
+           help='Cron style pattern describing schedule occurrence.')
+@utils.arg('name', metavar='<name>', help='Name of the backup.')
+@utils.arg('--description', metavar='<description>',
+           default=None,
+           help='An optional description for the backup.')
+@utils.arg('--parent', metavar='<parent>', default=None,
+           help='Optional ID of the parent backup to perform an'
+           ' incremental backup from.')
+@utils.service_type('database')
+def do_schedule_create(cs, args):
+    """Schedules backups for an instance."""
+    instance = _find_instance(cs, args.instance)
+    backup = cs.backups.schedule_create(instance, args.pattern, args.name,
+                                        description=args.description,
+                                        parent_id=args.parent)
+    _print_object(backup)
+
+
+@utils.arg('instance', metavar='<instance>',
+           help='ID or name of the instance.')
+@utils.service_type('database')
+def do_schedule_list(cs, args):
+    """Lists scheduled backups for an instance."""
+    instance = _find_instance(cs, args.instance)
+    schedules = cs.backups.schedule_list(instance)
+    utils.print_list(schedules, ['id', 'name', 'pattern',
+                                 'next_execution_time'],
+                     order_by='next_execution_time')
+
+
+@utils.arg('id', metavar='<schedule id>', help='Id of the schedule.')
+@utils.service_type('database')
+def do_schedule_show(cs, args):
+    """Shows details of a schedule."""
+    _print_object(cs.backups.schedule_show(args.id))
+
+
+@utils.arg('id', metavar='<schedule id>', help='Id of the schedule.')
+@utils.service_type('database')
+def do_schedule_delete(cs, args):
+    """Deletes a schedule."""
+    cs.backups.schedule_delete(args.id)
+
+
+@utils.arg('id', metavar='<schedule id>', help='Id of the schedule.')
+@utils.arg('--limit', metavar='<limit>',
+           default=None, type=int,
+           help='Return up to N number of the most recent executions.')
+@utils.arg('--marker', metavar='<ID>', type=str, default=None,
+           help='Begin displaying the results for IDs greater than the '
+                'specified marker. When used with --limit, set this to '
+                'the last ID displayed in the previous run.')
+@utils.service_type('database')
+def do_execution_list(cs, args):
+    """Lists executions of a scheduled backup of an instance."""
+    executions = cs.backups.execution_list(args.id, marker=args.marker,
+                                           limit=args.limit)
+
+    utils.print_list(executions, ['id', 'created_at', 'state', 'output'],
+                     labels={'created_at': 'Execution Time'},
+                     order_by='created_at')
+
+
+@utils.arg('execution', metavar='<execution>',
+           help='Id of the execution to delete.')
+@utils.service_type('database')
+def do_execution_delete(cs, args):
+    """Deletes an execution."""
+    cs.backups.execution_delete(args.execution)
 
 
 # Database related actions
@@ -1401,8 +1618,12 @@ def do_configuration_parameter_list(cs, args):
         raise exceptions.NoUniqueMatch('The datastore name or id is required'
                                        ' to retrieve the parameters for the'
                                        ' configuration group by name.')
-    utils.print_list(params, ['name', 'type', 'min_size', 'max_size',
-                              'restart_required'])
+    for param in params:
+        setattr(param, 'min', getattr(param, 'min', '-'))
+        setattr(param, 'max', getattr(param, 'max', '-'))
+    utils.print_list(
+        params, ['name', 'type', 'min', 'max', 'restart_required'],
+        labels={'min': 'Min Size', 'max': 'Max Size'})
 
 
 @utils.arg('configuration_group', metavar='<configuration_group>',
@@ -1551,7 +1772,10 @@ def do_module_list(cs, args):
                   'datastore_version', 'auto_apply', 'tenant', 'visible']
     is_admin = False
     if hasattr(cs.client, 'auth'):
-        roles = cs.client.auth.auth_ref['user']['roles']
+        if 'roles' in cs.client.auth.auth_ref['user']:
+            roles = cs.client.auth.auth_ref['user']['roles']
+        else:
+            roles = cs.client.auth.auth_ref['roles']
         role_names = [role['name'] for role in roles]
         is_admin = 'admin' in role_names
     if not is_admin:
@@ -2035,3 +2259,24 @@ def do_log_save(cs, args):
 #         args.datastore_version,
 #         args.name,
 #     )
+
+@utils.arg('tenant_id', metavar='<tenant_id>',
+           help='Id of tenant for which to show quotas.')
+@utils.service_type('database')
+def do_quota_show(cs, args):
+    """Show quotas for a tenant."""
+    utils.print_list(cs.quota.show(args.tenant_id),
+                     ['resource', 'in_use', 'reserved', 'limit'])
+
+
+@utils.arg('tenant_id', metavar='<tenant_id>',
+           help='Id of tenant for which to show quotas.')
+@utils.arg('resource', metavar='<resource>',
+           help='Id of resource to change.')
+@utils.arg('limit', metavar='<limit>', type=int,
+           help='New limit to set for the named resource.')
+@utils.service_type('database')
+def do_quota_update(cs, args):
+    """Update quotas for a tenant."""
+    utils.print_dict(cs.quota.update(args.tenant_id,
+                                     {args.resource: args.limit}))

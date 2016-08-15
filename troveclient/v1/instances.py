@@ -43,6 +43,11 @@ class Instance(base.Resource):
         """Delete the instance."""
         self.manager.delete(self)
 
+    def force_delete(self):
+        """Force delete the instance"""
+        self.manager.reset_status(self)
+        self.manager.delete(self)
+
     def restart(self):
         """Restart the database instance."""
         self.manager.restart(self.id)
@@ -89,7 +94,7 @@ class Instances(base.ManagerWithFind):
                restorePoint=None, availability_zone=None, datastore=None,
                datastore_version=None, nics=None, configuration=None,
                replica_of=None, slave_of=None, replica_count=None,
-               modules=None, locality=None):
+               modules=None, locality=None, region_name=None):
         """Create (boot) a new instance."""
 
         body = {"instance": {
@@ -131,6 +136,8 @@ class Instances(base.ManagerWithFind):
             body["instance"]["modules"] = self._get_module_list(modules)
         if locality:
             body["instance"]["locality"] = locality
+        if region_name:
+            body["instance"]["region_name"] = region_name
 
         return self._create("/instances", body, "instance")
 
@@ -213,6 +220,22 @@ class Instances(base.ManagerWithFind):
         url = "/instances/%s" % base.getid(instance)
         resp, body = self.api.client.delete(url)
         common.check_for_exceptions(resp, body, url)
+
+    def reset_status(self, instance):
+        """Reset the status of an instance.
+
+        :param instance: A reference to the instance
+        """
+        body = {'reset_status': {}}
+        self._action(instance, body)
+
+    def force_delete(self, instance):
+        """Force delete the specified instance.
+
+        :param instance: A reference to the instance to force delete
+        """
+        self.reset_status(instance)
+        self.delete(instance)
 
     def _action(self, instance, body):
         """Perform a server "action" -- reboot/rebuild/resize/etc."""
