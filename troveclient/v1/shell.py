@@ -1080,16 +1080,16 @@ def do_backup_copy(cs, args):
 @utils.arg('--description', metavar='<description>',
            default=None,
            help='An optional description for the backup.')
-@utils.arg('--parent', metavar='<parent>', default=None,
-           help='Optional ID of the parent backup to perform an'
-           ' incremental backup from.')
+@utils.arg('--incremental', action="store_true", default=False,
+           help='Flag to select incremental backup based on most recent'
+           ' backup.')
 @utils.service_type('database')
 def do_schedule_create(cs, args):
     """Schedules backups for an instance."""
     instance = _find_instance(cs, args.instance)
     backup = cs.backups.schedule_create(instance, args.pattern, args.name,
                                         description=args.description,
-                                        parent_id=args.parent)
+                                        incremental=args.incremental)
     _print_object(backup)
 
 
