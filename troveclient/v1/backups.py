@@ -86,7 +86,7 @@ class Backups(base.ManagerWithFind):
         body = {
             "backup": {
                 "name": name,
-                "incremental": incremental
+                "incremental": int(incremental)
             }
         }
 
@@ -143,7 +143,7 @@ class Backups(base.ManagerWithFind):
         return Schedule(self, sched_info, loaded=True)
 
     def schedule_create(self, instance, pattern, name,
-                        description=None, parent_id=None,
+                        description=None, incremental=None,
                         mistral_client=None):
         """Create a new schedule to backup the given instance.
 
@@ -151,7 +151,7 @@ class Backups(base.ManagerWithFind):
         :param: pattern: cron pattern for schedule.
         :param name: name for backup.
         :param description: (optional).
-        :param parent_id: base for incremental backup (optional).
+        :param incremental: flag for incremental backup (optional).
         :returns: :class:`Backups`
         """
 
@@ -163,7 +163,7 @@ class Backups(base.ManagerWithFind):
         wf_input = {"instance": inst_id,
                     "name": name,
                     "description": description,
-                    "parent_id": parent_id
+                    "incremental": incremental
                     }
 
         cron_trigger = mistral_client.cron_triggers.create(
