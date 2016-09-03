@@ -21,6 +21,7 @@ import re
 import sys
 import time
 
+INSTANCE_ARG_NAME = 'instance'
 INSTANCE_METAVAR = '"opt=<value>[,opt=<value> ...] "'
 INSTANCE_ERROR = ("Instance argument(s) must be of the form --instance "
                   + INSTANCE_METAVAR + " - see help for details.")
@@ -195,6 +196,11 @@ def _find_datastore_version(cs, datastore_version):
     return utils.find_resource(cs.datastores, datastore_version)
 
 
+def _find_configuration(cs, configuration):
+    """Get a configuration by ID."""
+    return utils.find_resource(cs.configurations, configuration)
+
+
 # Flavor related calls
 @utils.arg('--datastore_type', metavar='<datastore_type>',
            default=None,
@@ -220,8 +226,8 @@ def do_flavor_list(cs, args):
             f.id = f.str_id
         _flavors.append(f)
 
-    utils.print_list(_flavors, ['id', 'name', 'ram'],
-                     labels={'ram': 'RAM'})
+    utils.print_list(_flavors, ['id', 'name', 'ram', 'vcpus', 'disk'],
+                     labels={'ram': 'RAM', 'vcpus': 'vCPUs', 'disk': 'Disk'})
 
 
 @utils.arg('flavor', metavar='<flavor>', type=str,
@@ -357,7 +363,7 @@ def do_cluster_instances(cs, args):
         obj_is_dict=True)
 
 
-@utils.arg('--instance', metavar=INSTANCE_METAVAR,
+@utils.arg('--' + INSTANCE_ARG_NAME, metavar=INSTANCE_METAVAR,
            action='append', dest='instances', default=[],
            help=INSTANCE_HELP)
 @utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
@@ -366,9 +372,6 @@ def do_cluster_grow(cs, args):
     """Adds more instances to a cluster."""
     cluster = _find_cluster(cs, args.cluster)
     instances = _parse_instance_options(cs, args.instances, for_grow=True)
-    if len(instances) == 0:
-        raise exceptions.MissingArgs(['instance'])
-
     cs.clusters.grow(cluster, instances=instances)
 
 
@@ -386,7 +389,7 @@ def do_cluster_shrink(cs, args):
 
 
 @utils.arg('instance', metavar='<instance>',
-           help='ID or name  of the instance.')
+           help='ID or name of the instance.')
 @utils.service_type('database')
 def do_delete(cs, args):
     """Deletes an instance."""
@@ -500,7 +503,7 @@ def do_update(cs, args):
 @utils.arg('--backup',
            metavar='<backup>',
            default=None,
-           help='A backup ID.')
+           help='A backup name or ID.')
 @utils.arg('--availability_zone',
            metavar='<availability_zone>',
            default=None,
@@ -565,9 +568,9 @@ def do_create(cs, args):
                   "type": args.volume_type}
     restore_point = None
     if args.backup:
-        restore_point = {"backupRef": args.backup}
-    replica_count = args.replica_count
+        restore_point = {"backupRef": _find_backup(cs, args.backup).id}
     replica_of = None
+    replica_count = args.replica_count
     if args.replica_of:
         replica_of = _find_instance(cs, args.replica_of)
         replica_count = replica_count or 1
@@ -837,7 +840,7 @@ def _parse_properties(extended_properties):
 @utils.arg('datastore_version',
            metavar='<datastore_version>',
            help='A datastore version name or ID.')
-@utils.arg('--instance', metavar=INSTANCE_METAVAR,
+@utils.arg('--' + INSTANCE_ARG_NAME, metavar=INSTANCE_METAVAR,
            action='append', dest='instances', default=[],
            help=INSTANCE_HELP)
 @utils.arg('--locality',
@@ -856,7 +859,7 @@ def do_cluster_create(cs, args):
     """Creates a new cluster."""
     instances = _parse_instance_options(cs, args.instances)
     if len(instances) == 0:
-        raise exceptions.MissingArgs(['instance'])
+        raise exceptions.MissingArgs([INSTANCE_ARG_NAME])
 
     properties = _parse_properties(args.extended_properties)
 
@@ -960,7 +963,7 @@ def do_eject_replica_source(cs, args):
 # Backup related commands
 
 
-@utils.arg('backup', metavar='<backup>', help='ID of the backup.')
+@utils.arg('backup', metavar='<backup>', help='ID or name of the backup.')
 @utils.service_type('database')
 def do_backup_show(cs, args):
     """Shows details of a backup."""
@@ -981,12 +984,12 @@ def do_backup_show(cs, args):
 def do_backup_list_instance(cs, args):
     """Lists available backups for an instance."""
     instance = _find_instance(cs, args.instance)
-    wrapper = cs.instances.backups(instance, limit=args.limit,
-                                   marker=args.marker)
-    backups = wrapper.items
-    while wrapper.next and not args.limit:
-        wrapper = cs.instances.backups(instance, marker=wrapper.next)
-        backups += wrapper.items
+    items = cs.instances.backups(instance, limit=args.limit,
+                                 marker=args.marker)
+    backups = items
+    while items.next and not args.limit:
+        items = cs.instances.backups(instance, marker=items.next)
+        backups += items
     utils.print_list(backups, ['id', 'name', 'status',
                                'parent_id', 'updated'],
                      order_by='updated')
@@ -1001,16 +1004,16 @@ def do_backup_list_instance(cs, args):
                 'the last ID displayed in the previous run.')
 @utils.arg('--datastore', metavar='<datastore>',
            default=None,
-           help='Name or ID of the datastore to list backups for.')
+           help='ID or name of the datastore (to filter backups by).')
 @utils.service_type('database')
 def do_backup_list(cs, args):
     """Lists available backups."""
-    wrapper = cs.backups.list(limit=args.limit, datastore=args.datastore,
-                              marker=args.marker)
-    backups = wrapper.items
-    while wrapper.next and not args.limit:
-        wrapper = cs.backups.list(marker=wrapper.next)
-        backups += wrapper.items
+    items = cs.backups.list(limit=args.limit, datastore=args.datastore,
+                            marker=args.marker)
+    backups = items
+    while items.next and not args.limit:
+        items = cs.backups.list(marker=items.next)
+        backups += items
     utils.print_list(backups, ['id', 'instance_id', 'name',
                                'status', 'parent_id', 'updated'],
                      order_by='updated')
@@ -1080,16 +1083,16 @@ def do_backup_copy(cs, args):
 @utils.arg('--description', metavar='<description>',
            default=None,
            help='An optional description for the backup.')
-@utils.arg('--parent', metavar='<parent>', default=None,
-           help='Optional ID of the parent backup to perform an'
-           ' incremental backup from.')
+@utils.arg('--incremental', action="store_true", default=False,
+           help='Flag to select incremental backup based on most recent'
+           ' backup.')
 @utils.service_type('database')
 def do_schedule_create(cs, args):
     """Schedules backups for an instance."""
     instance = _find_instance(cs, args.instance)
     backup = cs.backups.schedule_create(instance, args.pattern, args.name,
                                         description=args.description,
-                                        parent_id=args.parent)
+                                        incremental=args.incremental)
     _print_object(backup)
 
 
@@ -1175,17 +1178,17 @@ def do_database_create(cs, args):
 def do_database_list(cs, args):
     """Lists available databases on an instance."""
     instance = _find_instance(cs, args.instance)
-    wrapper = cs.databases.list(instance)
-    databases = wrapper.items
-    while (wrapper.next):
-        wrapper = cs.databases.list(instance, marker=wrapper.next)
-        databases += wrapper.items
+    items = cs.databases.list(instance)
+    databases = items
+    while (items.next):
+        items = cs.databases.list(instance, marker=items.next)
+        databases += items
 
     utils.print_list(databases, ['name'])
 
 
 @utils.arg('instance', metavar='<instance>',
-           help='ID or name  of the instance.')
+           help='ID or name of the instance.')
 @utils.arg('database', metavar='<database>', help='Name of the database.')
 @utils.service_type('database')
 def do_database_delete(cs, args):
@@ -1197,7 +1200,7 @@ def do_database_delete(cs, args):
 # User related actions
 
 @utils.arg('instance', metavar='<instance>',
-           help='ID or name  of the instance.')
+           help='ID or name of the instance.')
 @utils.arg('name', metavar='<name>', help='Name of user.')
 @utils.arg('password', metavar='<password>', help='Password of user.')
 @utils.arg('--host', metavar='<host>', default=None,
@@ -1223,11 +1226,11 @@ def do_user_create(cs, args):
 def do_user_list(cs, args):
     """Lists the users for an instance."""
     instance = _find_instance(cs, args.instance)
-    wrapper = cs.users.list(instance)
-    users = wrapper.items
-    while (wrapper.next):
-        wrapper = cs.users.list(instance, marker=wrapper.next)
-        users += wrapper.items
+    items = cs.users.list(instance)
+    users = items
+    while (items.next):
+        items = cs.users.list(instance, marker=items.next)
+        users += items
     for user in users:
         db_names = [db['name'] for db in user.databases]
         user.databases = ', '.join(db_names)
@@ -1394,11 +1397,11 @@ def do_root_show(cs, args):
 @utils.service_type('database')
 def do_secgroup_list(cs, args):
     """Lists all security groups."""
-    wrapper = cs.security_groups.list()
-    sec_grps = wrapper.items
-    while (wrapper.next):
-        wrapper = cs.security_groups.list()
-        sec_grps += wrapper.items
+    items = cs.security_groups.list()
+    sec_grps = items
+    while (items.next):
+        items = cs.security_groups.list()
+        sec_grps += items
 
     utils.print_list(sec_grps, ['id', 'name', 'instance_id'])
 
@@ -1460,10 +1463,19 @@ def do_datastore_list(cs, args):
 def do_datastore_show(cs, args):
     """Shows details of a datastore."""
     datastore = cs.datastores.get(args.datastore)
+
+    info = datastore._info.copy()
+    versions = info.get('versions', [])
+    versions_str = "\n".join(
+        [ver['name'] + " (" + ver['id'] + ")" for ver in versions])
+    info['versions (id)'] = versions_str
+    info.pop('versions', None)
+    info.pop('links', None)
     if hasattr(datastore, 'default_version'):
-        datastore._info['default_version'] = getattr(datastore,
-                                                     'default_version')
-    _print_object(datastore)
+        def_ver_id = getattr(datastore, 'default_version')
+        info['default_version'] = [
+            ver['name'] for ver in versions if ver['id'] == def_ver_id][0]
+    utils.print_dict(info)
 
 
 @utils.arg('datastore', metavar='<datastore>',
@@ -1506,12 +1518,14 @@ def do_datastore_version_show(cs, args):
 @utils.arg('configuration',
            metavar='<configuration>',
            type=str,
-           help='ID of the configuration group to attach to the instance.')
+           help='ID or name of the configuration group to attach to the'
+                ' instance.')
 @utils.service_type('database')
 def do_configuration_attach(cs, args):
     """Attaches a configuration group to an instance."""
     instance = _find_instance(cs, args.instance)
-    cs.instances.modify(instance, args.configuration)
+    configuration = _find_configuration(cs, args.configuration)
+    cs.instances.modify(instance, configuration)
 
 
 @utils.arg('name', metavar='<name>', help='Name of the configuration group.')
@@ -1551,11 +1565,12 @@ def do_configuration_default(cs, args):
 
 
 @utils.arg('configuration_group', metavar='<configuration_group>',
-           help='ID of the configuration group.')
+           help='ID or name of the configuration group.')
 @utils.service_type('database')
 def do_configuration_delete(cs, args):
     """Deletes a configuration group."""
-    cs.configurations.delete(args.configuration_group)
+    configuration = _find_configuration(cs, args.configuration_group)
+    cs.configurations.delete(configuration)
 
 
 @utils.arg('instance',
@@ -1627,14 +1642,14 @@ def do_configuration_parameter_list(cs, args):
 
 
 @utils.arg('configuration_group', metavar='<configuration_group>',
-           help='ID of the configuration group.')
+           help='ID or name of the configuration group.')
 @utils.arg('values', metavar='<values>',
            help='Dictionary of the values to set.')
 @utils.service_type('database')
 def do_configuration_patch(cs, args):
     """Patches a configuration group."""
-    cs.configurations.edit(args.configuration_group,
-                           args.values)
+    configuration = _find_configuration(cs, args.configuration_group)
+    cs.configurations.edit(configuration, args.values)
 
 
 @utils.arg('configuration_group', metavar='<configuration_group>',
@@ -1670,11 +1685,12 @@ def do_configuration_list(cs, args):
 
 
 @utils.arg('configuration_group', metavar='<configuration_group>',
-           help='ID of the configuration group.')
+           help='ID or name of the configuration group.')
 @utils.service_type('database')
 def do_configuration_show(cs, args):
     """Shows details of a configuration group."""
-    config_grp = cs.configurations.get(args.configuration_group)
+    configuration = _find_configuration(cs, args.configuration_group)
+    config_grp = cs.configurations.get(configuration)
     config_grp._info['values'] = json.dumps(config_grp.values)
 
     del config_grp._info['datastore_version_id']
@@ -1682,7 +1698,7 @@ def do_configuration_show(cs, args):
 
 
 @utils.arg('configuration_group', metavar='<configuration_group>',
-           help='ID of the configuration group.')
+           help='ID or name of the configuration group.')
 @utils.arg('values', metavar='<values>',
            help='Dictionary of the values to set.')
 @utils.arg('--name', metavar='<name>', default=None,
@@ -1693,7 +1709,8 @@ def do_configuration_show(cs, args):
 @utils.service_type('database')
 def do_configuration_update(cs, args):
     """Updates a configuration group."""
-    cs.configurations.update(args.configuration_group,
+    configuration = _find_configuration(cs, args.configuration_group)
+    cs.configurations.update(configuration,
                              args.values,
                              args.name,
                              args.description)
@@ -1769,20 +1786,29 @@ def do_module_list(cs, args):
             datastore = _find_datastore(cs, args.datastore)
     module_list = cs.modules.list(datastore=datastore)
     field_list = ['id', 'name', 'type', 'datastore',
-                  'datastore_version', 'auto_apply', 'tenant', 'visible']
+                  'datastore_version', 'auto_apply',
+                  'priority_apply', 'apply_order', 'is_admin',
+                  'tenant', 'visible']
     is_admin = False
-    if hasattr(cs.client, 'auth'):
-        if 'roles' in cs.client.auth.auth_ref['user']:
+    try:
+        try:
             roles = cs.client.auth.auth_ref['user']['roles']
-        else:
-            roles = cs.client.auth.auth_ref['roles']
+        except TypeError:
+            roles = cs.client.auth.auth_ref._data['access']['user']['roles']
         role_names = [role['name'] for role in roles]
         is_admin = 'admin' in role_names
+    except TypeError:
+        pass
+    except AttributeError:
+        pass
     if not is_admin:
         field_list = field_list[:-2]
     utils.print_list(
         module_list, field_list,
-        labels={'datastore_version': 'Version'})
+        labels={'datastore_version': 'Version',
+                'priority_apply': 'Priority',
+                'apply_order': 'Order',
+                'is_admin': 'Admin'})
 
 
 @utils.arg('module', metavar='<module>',
@@ -1812,16 +1838,29 @@ def do_module_show(cs, args):
                 'to. If not specified, module can be applied to all versions.')
 @utils.arg('--auto_apply', action='store_true', default=False,
            help='Automatically apply this module when creating an instance '
-                'or cluster.')
+                'or cluster. Admin only.')
 @utils.arg('--all_tenants', action='store_true', default=False,
-           help='Module is valid for all tenants (Admin only).')
-# This option is to suppress the module from module-list for non-admin
+           help='Module is valid for all tenants. Admin only.')
 @utils.arg('--hidden', action='store_true', default=False,
-           help=argparse.SUPPRESS)
+           help='Hide this module from non-Admin. Useful in creating '
+                'auto-apply modules without cluttering up module lists. '
+                'Admin only.')
 @utils.arg('--live_update', action='store_true', default=False,
            help='Allow module to be updated even if it is already applied '
                 'to a current instance or cluster. Automatically attempt to '
                 'reapply this module if the contents change.')
+@utils.arg('--priority_apply', action='store_true', default=False,
+           help='Sets a priority for applying the module. All priority '
+                'modules will be applied before non-priority ones. '
+                'Admin only.')
+@utils.arg('--apply_order', type=int, default=5, choices=range(0, 10),
+           help='Sets an order for applying the module. Modules with a lower '
+                'value will be applied before modules with a higher '
+                'value. Modules having the same value may be '
+                'applied in any order (default %(default)s).')
+@utils.arg('--full_access', action='store_true', default=None,
+           help="Marks a module as 'non-admin', unless an admin-only "
+                "option was specified. Admin only.")
 @utils.service_type('database')
 def do_module_create(cs, args):
     """Create a module."""
@@ -1836,7 +1875,8 @@ def do_module_create(cs, args):
         all_tenants=args.all_tenants, datastore=args.datastore,
         datastore_version=args.datastore_version,
         auto_apply=args.auto_apply, visible=not args.hidden,
-        live_update=args.live_update)
+        live_update=args.live_update, priority_apply=args.priority_apply,
+        apply_order=args.apply_order, full_access=args.full_access)
     _print_object(module)
 
 
@@ -1846,7 +1886,7 @@ def do_module_create(cs, args):
            help='Name of the module.')
 @utils.arg('--type', metavar='<type>', type=str, default=None,
            help='Type of the module. The type must be supported by a '
-                'corresponding module plugin on the datastore it is '
+                'corresponding module driver plugin on the datastore it is '
                 'applied to.')
 @utils.arg('--file', metavar='<filename>', type=argparse.FileType('rb', 0),
            default=None,
@@ -1854,35 +1894,36 @@ def do_module_create(cs, args):
 @utils.arg('--description', metavar='<description>', type=str, default=None,
            help='Description of the module.')
 @utils.arg('--datastore', metavar='<datastore>',
+           default=None,
            help='Name or ID of datastore this module can be applied to. '
                 'If not specified, module can be applied to all datastores.')
-@utils.arg('--all_datastores', dest='datastore', action='store_const',
-           const=None,
+@utils.arg('--all_datastores', default=None, action='store_const', const=True,
            help='Module is valid for all datastores.')
 @utils.arg('--datastore_version', metavar='<version>',
+           default=None,
            help='Name or ID of datastore version this module can be applied '
                 'to. If not specified, module can be applied to all versions.')
-@utils.arg('--all_datastore_versions', dest='datastore_version',
-           action='store_const', const=None,
-           help='Module is valid for all datastore version.')
+@utils.arg('--all_datastore_versions', default=None,
+           action='store_const', const=True,
+           help='Module is valid for all datastore versions.')
 @utils.arg('--auto_apply', action='store_true', default=None,
            help='Automatically apply this module when creating an instance '
-                'or cluster.')
+                'or cluster. Admin only.')
 @utils.arg('--no_auto_apply', dest='auto_apply', action='store_false',
            default=None,
            help='Do not automatically apply this module when creating an '
-                'instance or cluster.')
+                'instance or cluster. Admin only.')
 @utils.arg('--all_tenants', action='store_true', default=None,
-           help='Module is valid for all tenants (Admin only).')
+           help='Module is valid for all tenants. Admin only.')
 @utils.arg('--no_all_tenants', dest='all_tenants', action='store_false',
            default=None,
-           help='Module is valid for current tenant only (Admin only).')
-# This option is to suppress the module from module-list for non-admin
+           help='Module is valid for current tenant only. Admin only.')
 @utils.arg('--hidden', action='store_true', default=None,
-           help=argparse.SUPPRESS)
-# This option is to allow the module to be seen from module-list for non-admin
+           help='Hide this module from non-admin users. Useful in creating '
+                'auto-apply modules without cluttering up module lists. '
+                'Admin only.')
 @utils.arg('--no_hidden', dest='hidden', action='store_false', default=None,
-           help=argparse.SUPPRESS)
+           help='Allow all users to see this module. Admin only.')
 @utils.arg('--live_update', action='store_true', default=None,
            help='Allow module to be updated or deleted even if it is already '
                 'applied to a current instance or cluster. Automatically '
@@ -1891,22 +1932,41 @@ def do_module_create(cs, args):
            default=None,
            help='Restricts a module from being updated or deleted if it is '
                 'already applied to a current instance or cluster.')
+@utils.arg('--priority_apply', action='store_true', default=None,
+           help='Sets a priority for applying the module. All priority '
+                'modules will be applied before non-priority ones. '
+                'Admin only.')
+@utils.arg('--no_priority_apply', dest='priority_apply', action='store_false',
+           default=None,
+           help='Removes apply priority from the module. Admin only.')
+@utils.arg('--apply_order', type=int, default=None, choices=range(0, 10),
+           help='Sets an order for applying the module. Modules with a lower '
+                'value will be applied before modules with a higher '
+                'value. Modules having the same value may be '
+                'applied in any order (default %(default)s).')
+@utils.arg('--full_access', action='store_true', default=None,
+           help="Marks a module as 'non-admin', unless an admin-only "
+                "option was specified. Admin only.")
+@utils.arg('--no_full_access', dest='full_access', action='store_false',
+           default=None,
+           help='Restricts modification access for non-admin. Admin only.')
 @utils.service_type('database')
 def do_module_update(cs, args):
     """Update a module."""
     module = _find_module(cs, args.module)
     contents = args.file.read() if args.file else None
     visible = not args.hidden if args.hidden is not None else None
-    datastore_args = {}
-    if args.datastore:
-        datastore_args['datastore'] = args.datastore
-    if args.datastore_version:
-        datastore_args['datastore_version'] = args.datastore_version
+    datastore_args = {'datastore': args.datastore,
+                      'datastore_version': args.datastore_version}
     updated_module = cs.modules.update(
         module, name=args.name, module_type=args.type, contents=contents,
         description=args.description, all_tenants=args.all_tenants,
         auto_apply=args.auto_apply, visible=visible,
-        live_update=args.live_update, **datastore_args)
+        live_update=args.live_update, all_datastores=args.all_datastores,
+        all_datastore_versions=args.all_datastore_versions,
+        priority_apply=args.priority_apply,
+        apply_order=args.apply_order, full_access=args.full_access,
+        **datastore_args)
     _print_object(updated_module)
 
 
@@ -1945,13 +2005,13 @@ def do_module_list_instance(cs, args):
 def do_module_instances(cs, args):
     """Lists the instances that have a particular module applied."""
     module = _find_module(cs, args.module)
-    wrapper = cs.modules.instances(
+    items = cs.modules.instances(
         module, limit=args.limit, marker=args.marker,
         include_clustered=args.include_clustered)
-    instance_list = wrapper.items
-    while not args.limit and wrapper.next:
-        wrapper = cs.modules.instances(module, marker=wrapper.next)
-        instance_list += wrapper.items
+    instance_list = items
+    while not args.limit and items.next:
+        items = cs.modules.instances(module, marker=items.next)
+        instance_list += items
     _print_instances(instance_list)
 
 
@@ -2270,7 +2330,7 @@ def do_quota_show(cs, args):
 
 
 @utils.arg('tenant_id', metavar='<tenant_id>',
-           help='Id of tenant for which to show quotas.')
+           help='Id of tenant for which to update quotas.')
 @utils.arg('resource', metavar='<resource>',
            help='Id of resource to change.')
 @utils.arg('limit', metavar='<limit>', type=int,

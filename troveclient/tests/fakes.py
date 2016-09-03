@@ -446,7 +446,10 @@ class FakeHTTPClient(base_client.HTTPClient):
                 "datastore_version": 'all',
                 "tenant": 'all',
                 "auto_apply": 0,
-                "visible": 1},
+                "visible": 1,
+                "priority_apply": 0,
+                "apply_order": 5,
+                "is_admin": 0},
             {
                 "id": "8765",
                 "name": "mod2",
@@ -455,7 +458,10 @@ class FakeHTTPClient(base_client.HTTPClient):
                 "datastore_version": 'all',
                 "tenant": 'all',
                 "auto_apply": 0,
-                "visible": 1}]})
+                "visible": 0,
+                "priority_apply": 0,
+                "apply_order": 5,
+                "is_admin": 1}]})
 
     def get_modules_4321(self, **kw):
         r = {'module': self.get_modules()[2]['modules'][0]}
@@ -537,6 +543,10 @@ class FakeHTTPClient(base_client.HTTPClient):
                                 "bk-5678.xbstream.gz.enc")}]})
 
     def get_backups_bk_1234(self, **kw):
+        r = {'backup': self.get_backups()[2]['backups'][0]}
+        return (200, {}, r)
+
+    def get_backups_bkp_1(self, **kw):
         r = {'backup': self.get_backups()[2]['backups'][0]}
         return (200, {}, r)
 

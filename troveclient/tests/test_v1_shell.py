@@ -177,6 +177,10 @@ class ShellTest(utils.TestCase):
         self.run_command('show 1234')
         self.assert_called('GET', '/instances/1234')
 
+    def test_reset_status(self):
+        self.run_command('reset-status 1234')
+        self.assert_called('POST', '/instances/1234/action')
+
     def test_instance_delete(self):
         self.run_command('delete 1234')
         self.assert_called('DELETE', '/instances/1234')
@@ -184,6 +188,10 @@ class ShellTest(utils.TestCase):
     def test_instance_force_delete(self):
         self.run_command('force-delete 1234')
         self.assert_called('DELETE', '/instances/1234')
+
+    def test_instance_update(self):
+        self.run_command('update 1234')
+        self.assert_called('PATCH', '/instances/1234')
 
     def test_resize_instance(self):
         self.run_command('resize-instance 1234 1')
@@ -278,6 +286,10 @@ class ShellTest(utils.TestCase):
     def test_cluster_instances(self):
         self.run_command('cluster-instances cls-1234')
         self.assert_called('GET', '/clusters/cls-1234')
+
+    def test_cluster_reset_status(self):
+        self.run_command('cluster-reset-status cls-1234')
+        self.assert_called('POST', '/clusters/cls-1234')
 
     def test_cluster_delete(self):
         self.run_command('cluster-delete cls-1234')
@@ -396,6 +408,28 @@ class ShellTest(utils.TestCase):
             exceptions.ValidationError,
             'Invalid NIC argument: nic=\'net-id=some-id,port-id=some-id\'',
             self.run_command, cmd)
+
+    def test_boot_restore_by_id(self):
+        self.run_command('create test-restore-1 1 --size 1 --backup bk_1234')
+        self.assert_called_anytime(
+            'POST', '/instances',
+            {'instance': {
+                'volume': {'size': 1, 'type': None},
+                'flavorRef': 1,
+                'name': 'test-restore-1',
+                'restorePoint': {'backupRef': 'bk-1234'},
+            }})
+
+    def test_boot_restore_by_name(self):
+        self.run_command('create test-restore-1 1 --size 1 --backup bkp_1')
+        self.assert_called_anytime(
+            'POST', '/instances',
+            {'instance': {
+                'volume': {'size': 1, 'type': None},
+                'flavorRef': 1,
+                'name': 'test-restore-1',
+                'restorePoint': {'backupRef': 'bk-1234'},
+            }})
 
     def test_cluster_create(self):
         cmd = ('cluster-create test-clstr vertica 7.1 '
@@ -670,7 +704,8 @@ class ShellTest(utils.TestCase):
                                 'all_tenants': 0,
                                 'module_type': 'type', 'visible': 1,
                                 'auto_apply': 0, 'live_update': 0,
-                                'name': 'mod1'}})
+                                'name': 'mod1', 'priority_apply': 0,
+                                'apply_order': 5}})
 
     def test_module_update(self):
         with mock.patch.object(troveclient.v1.modules.Module, '__repr__',
