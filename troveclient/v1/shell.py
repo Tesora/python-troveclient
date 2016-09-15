@@ -1208,6 +1208,9 @@ def do_database_delete(cs, args):
 @utils.arg('--databases', metavar='<databases>',
            help='Optional list of databases.',
            nargs="+", default=[])
+@utils.arg('--roles', metavar='<roles>',
+           help='Optional list of roles.',
+           nargs="+", default=[])
 @utils.service_type('database')
 def do_user_create(cs, args):
     """Creates a user on an instance."""
@@ -1215,6 +1218,8 @@ def do_user_create(cs, args):
     databases = [{'name': value} for value in args.databases]
     user = {'name': args.name, 'password': args.password,
             'databases': databases}
+    if args.roles:
+        user['roles'] = [{'name': value} for value in args.roles]
     if args.host:
         user['host'] = args.host
     cs.users.create(instance, [user])
@@ -1234,7 +1239,19 @@ def do_user_list(cs, args):
     for user in users:
         db_names = [db['name'] for db in user.databases]
         user.databases = ', '.join(db_names)
-    utils.print_list(users, ['name', 'host', 'databases'])
+        if not hasattr(user, 'roles'):
+            user.roles = ''
+        else:
+            roles = []
+            for role in user.roles:
+                name = role['name']
+                db = role.get('database')
+                if db:
+                    roles.append(':'.join([db, name]))
+                else:
+                    roles.append(name)
+            user.roles = ', '.join(roles)
+    utils.print_list(users, ['name', 'host', 'databases', 'roles'])
 
 
 @utils.arg('instance', metavar='<instance>',

@@ -802,13 +802,15 @@ class ShellTest(utils.TestCase):
         self.assert_called('DELETE', '/instances/1234/users/jacob')
 
     def test_user_create(self):
-        self.run_command('user-create 1234 jacob password')
+        self.run_command('user-create 1234 jacob password '
+                         '--roles monitor')
         self.assert_called_anytime(
             'POST', '/instances/1234/users',
             {'users': [{
                 'password': 'password',
                 'name': 'jacob',
-                'databases': []}]})
+                'databases': [],
+                'roles': [{'name': 'monitor'}]}]})
 
     def test_user_show_access(self):
         self.run_command('user-show-access 1234 jacob')
