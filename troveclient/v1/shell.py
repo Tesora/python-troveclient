@@ -139,6 +139,24 @@ def _print_object(obj):
     utils.print_dict(obj._info)
 
 
+def _format_database_list(databases):
+    return ', '.join([db['name'] for db in databases])
+
+
+def _format_role_list(roles):
+    roles = []
+    for role in roles:
+        name = role.get('name')
+        if name:
+            db = role.get('database')
+            if db:
+                roles.append(':'.join([db, name]))
+            else:
+                roles.append(name)
+
+    return ', '.join(roles)
+
+
 def _find_instance_or_cluster(cs, instance_or_cluster):
     """Returns an instance or cluster, found by id, along with the type of
     resource, instance or cluster, that was found.
@@ -814,26 +832,19 @@ def _parse_instance_options(cs, instance_options, for_grow=False):
     return instances
 
 
-def _parse_properties(extended_properties):
+def _parse_properties(extended_properties, valid_property_names):
     properties = {}
     if extended_properties:
         remaining_props = extended_properties
-        supported_properties = [
-            # Oracle RAC
-            'storage_type', 'database',
-            'votedisk_mount', 'registry_mount', 'database_mount',
-            'subnet', 'subnetpool', 'network', 'router', 'prefixlen',
-        ]
-
-        for supported_property in supported_properties:
+        for name in valid_property_names:
             try:
                 value, remaining_props = _strip_option(
-                    remaining_props, supported_property, is_required=False)
+                    remaining_props, name, is_required=False)
             except exceptions.ValidationError:
                 raise exceptions.ValidationError(
-                    "Invalid value for property " + supported_property)
+                    "Invalid value for property " + name)
             if value:
-                properties[supported_property] = value
+                properties[name] = value
 
         if remaining_props:
             raise exceptions.ValidationError(
@@ -872,7 +883,14 @@ def do_cluster_create(cs, args):
     if len(instances) == 0:
         raise exceptions.MissingArgs(['instance'])
 
-    properties = _parse_properties(args.extended_properties)
+    valid_properties = [
+        # Oracle RAC
+        'storage_type', 'database',
+        'votedisk_mount', 'registry_mount', 'database_mount',
+        'subnet', 'subnetpool', 'network', 'router', 'prefixlen'
+    ]
+
+    properties = _parse_properties(args.extended_properties, valid_properties)
 
     cluster = cs.clusters.create(args.name,
                                  args.datastore,
@@ -1222,6 +1240,11 @@ def do_database_delete(cs, args):
 @utils.arg('--roles', metavar='<roles>',
            help='Optional list of roles.',
            nargs="+", default=[])
+@utils.arg('--property',
+           dest='extended_properties',
+           default=None,
+           metavar='<key=value>',
+           help="Any additional key/value properties as define by datastore.")
 @utils.service_type('database')
 def do_user_create(cs, args):
     """Creates a user on an instance."""
@@ -1233,6 +1256,25 @@ def do_user_create(cs, args):
         user['roles'] = [{'name': value} for value in args.roles]
     if args.host:
         user['host'] = args.host
+
+    valid_properties = [
+        # Couchbase
+        'bucket_ramsize', 'bucket_replica', 'enable_index_replica',
+        'bucket_eviction_policy', 'bucket_priority'
+    ]
+
+    props = _parse_properties(args.extended_properties, valid_properties)
+    if 'bucket_ramsize' in props:
+        user['bucket_ramsize'] = int(props.get('bucket_ramsize'))
+    if 'bucket_replica' in props:
+        user['bucket_replica'] = int(props.get('bucket_replica'))
+    if 'enable_index_replica' in props:
+        user['enable_index_replica'] = int(props.get('enable_index_replica'))
+    if 'bucket_eviction_policy' in props:
+        user['bucket_eviction_policy'] = props.get('bucket_eviction_policy')
+    if 'bucket_priority' in props:
+        user['bucket_priority'] = props.get('bucket_priority')
+
     cs.users.create(instance, [user])
 
 
@@ -1247,23 +1289,23 @@ def do_user_list(cs, args):
     while (wrapper.next):
         wrapper = cs.users.list(instance, marker=wrapper.next)
         users += wrapper.items
+
+    fields = ['name']
+    if users:
+        user_fields = users[0].to_dict().keys()
+        fields.extend(sorted(set(user_fields) - set(fields)))
+
+    if 'databases' in fields:
+        for user in users:
+            user.databases = _format_database_list(user.databases)
+
     for user in users:
-        db_names = [db['name'] for db in user.databases]
-        user.databases = ', '.join(db_names)
-        if not hasattr(user, 'roles'):
-            user.roles = ''
+        if hasattr(user, 'roles'):
+            user.roles = _format_role_list(user.roles)
         else:
-            roles = []
-            for role in user.roles:
-                name = role.get('name')
-                if name:
-                    db = role.get('database')
-                    if db:
-                        roles.append(':'.join([db, name]))
-                    else:
-                        roles.append(name)
-            user.roles = ', '.join(roles)
-    utils.print_list(users, ['name', 'host', 'databases', 'roles'])
+            user.roles = ''
+
+    utils.print_list(users, fields)
 
 
 @utils.arg('instance', metavar='<instance>',
@@ -1288,6 +1330,8 @@ def do_user_show(cs, args):
     """Shows details of a user of an instance."""
     instance = _find_instance(cs, args.instance)
     user = cs.users.get(instance, args.name, hostname=args.host)
+    if 'databases' in user.to_dict():
+        user._info['databases'] = _format_database_list(user.databases)
     _print_object(user)
 
 
@@ -1315,6 +1359,11 @@ def do_user_show_access(cs, args):
            help='Optional new password of user.')
 @utils.arg('--new_host', metavar='<new_host>', default=None,
            help='Optional new host of user.')
+@utils.arg('--property',
+           dest='extended_properties',
+           default=None,
+           metavar='<key=value>',
+           help="Any additional key/value properties as define by datastore.")
 @utils.service_type('database')
 def do_user_update_attributes(cs, args):
     """Updates a user's attributes on an instance.
@@ -1328,6 +1377,28 @@ def do_user_update_attributes(cs, args):
         new_attrs['password'] = args.new_password
     if args.new_host:
         new_attrs['host'] = args.new_host
+
+    valid_properties = [
+        # Couchbase
+        'new_bucket_ramsize', 'new_bucket_replica',
+        'new_enable_index_replica', 'new_bucket_eviction_policy',
+        'new_bucket_priority',
+    ]
+
+    props = _parse_properties(args.extended_properties, valid_properties)
+    if 'new_bucket_ramsize' in props:
+        new_attrs['bucket_ramsize'] = int(props.get('new_bucket_ramsize'))
+    if 'new_bucket_replica' in props:
+        new_attrs['bucket_replica'] = int(props.get('new_bucket_replica'))
+    if 'new_enable_index_replica' in props:
+        new_attrs['enable_index_replica'] = int(props.get(
+            'new_enable_index_replica'))
+    if 'new_bucket_eviction_policy' in props:
+        new_attrs['bucket_eviction_policy'] = props.get(
+            'new_bucket_eviction_policy')
+    if 'new_bucket_priority' in props:
+        new_attrs['bucket_priority'] = props.get('new_bucket_priority')
+
     cs.users.update_attributes(instance, args.name,
                                newuserattr=new_attrs, hostname=args.host)
 
