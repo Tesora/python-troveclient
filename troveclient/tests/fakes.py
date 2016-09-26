@@ -581,7 +581,7 @@ class FakeHTTPClient(base_client.HTTPClient):
 
     def get_instances_1234_users(self, **kw):
         return (200, {}, {"users": [
-            {"host": "%", "name": "jacob", "databases": []},
+            {"host": "%", "name": "jacob", "databases": [], "roles": []},
             {"host": "%", "name": "rocky", "databases": []},
             {"host": "%", "name": "harry", "databases": [{"name": "db1"}]}]})
 
@@ -598,7 +598,7 @@ class FakeHTTPClient(base_client.HTTPClient):
             required=['users'])
         for database in body['users']:
             assert_has_keys(database, required=['name', 'password'],
-                            optional=['databases'])
+                            optional=['databases', 'roles'])
         return (202, {}, self.get_instances_1234_users()[2]['users'][0])
 
     def get_instances_1234_users_jacob_databases(self, **kw):
