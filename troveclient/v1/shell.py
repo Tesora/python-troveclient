@@ -1255,12 +1255,13 @@ def do_user_list(cs, args):
         else:
             roles = []
             for role in user.roles:
-                name = role['name']
-                db = role.get('database')
-                if db:
-                    roles.append(':'.join([db, name]))
-                else:
-                    roles.append(name)
+                name = role.get('name')
+                if name:
+                    db = role.get('database')
+                    if db:
+                        roles.append(':'.join([db, name]))
+                    else:
+                        roles.append(name)
             user.roles = ', '.join(roles)
     utils.print_list(users, ['name', 'host', 'databases', 'roles'])
 
