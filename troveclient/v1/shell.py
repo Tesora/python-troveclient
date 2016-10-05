@@ -143,9 +143,9 @@ def _format_database_list(databases):
     return ', '.join([db['name'] for db in databases])
 
 
-def _format_role_list(roles):
+def _format_role_list(user_roles):
     roles = []
-    for role in roles:
+    for role in user_roles:
         name = role.get('name')
         if name:
             db = role.get('database')
