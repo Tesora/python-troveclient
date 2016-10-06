@@ -24,7 +24,9 @@ def get_version_map():
     }
 
 
-def assert_has_keys(dict, required=[], optional=[]):
+def assert_has_keys(dict, required=None, optional=None):
+    required = required or []
+    optional = optional or []
     keys = dict.keys()
     for k in required:
         try:
@@ -237,8 +239,16 @@ class FakeHTTPClient(base_client.HTTPClient):
         r = {'flavor': self.get_flavors()[2]['flavors'][0]}
         return (200, {}, r)
 
+    def get_flavors_eph_rd_smaller(self, **kw):
+        r = {'flavor': self.get_flavors()[2]['flavors'][1]}
+        return (200, {}, r)
+
     def get_flavors_m1_small(self, **kw):
         r = {'flavor': self.get_flavors()[2]['flavors'][2]}
+        return (200, {}, r)
+
+    def get_flavors_m1_medium(self, **kw):
+        r = {'flavor': self.get_flavors()[2]['flavors'][3]}
         return (200, {}, r)
 
     def get_flavors_m1_uuid(self, **kw):
