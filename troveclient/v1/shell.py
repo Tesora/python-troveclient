@@ -1191,7 +1191,7 @@ def do_execution_delete(cs, args):
 @utils.service_type('database')
 def do_database_create(cs, args):
     """Creates a database on an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     database_dict = {'name': args.name}
     if args.collate:
         database_dict['collate'] = args.collate
@@ -1206,7 +1206,7 @@ def do_database_create(cs, args):
 @utils.service_type('database')
 def do_database_list(cs, args):
     """Lists available databases on an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     wrapper = cs.databases.list(instance)
     databases = wrapper.items
     while (wrapper.next):
@@ -1222,7 +1222,7 @@ def do_database_list(cs, args):
 @utils.service_type('database')
 def do_database_delete(cs, args):
     """Deletes a database from an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     cs.databases.delete(instance, args.database)
 
 
@@ -1248,7 +1248,7 @@ def do_database_delete(cs, args):
 @utils.service_type('database')
 def do_user_create(cs, args):
     """Creates a user on an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     databases = [{'name': value} for value in args.databases]
     user = {'name': args.name, 'password': args.password,
             'databases': databases}
@@ -1283,7 +1283,7 @@ def do_user_create(cs, args):
 @utils.service_type('database')
 def do_user_list(cs, args):
     """Lists the users for an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     wrapper = cs.users.list(instance)
     users = wrapper.items
     while (wrapper.next):
@@ -1316,7 +1316,7 @@ def do_user_list(cs, args):
 @utils.service_type('database')
 def do_user_delete(cs, args):
     """Deletes a user from an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     cs.users.delete(instance, args.name, hostname=args.host)
 
 
@@ -1328,7 +1328,7 @@ def do_user_delete(cs, args):
 @utils.service_type('database')
 def do_user_show(cs, args):
     """Shows details of a user of an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     user = cs.users.get(instance, args.name, hostname=args.host)
     if 'databases' in user.to_dict():
         user._info['databases'] = _format_database_list(user.databases)
@@ -1343,7 +1343,7 @@ def do_user_show(cs, args):
 @utils.service_type('database')
 def do_user_show_access(cs, args):
     """Shows access details of a user of an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     access = cs.users.list_access(instance, args.name, hostname=args.host)
     utils.print_list(access, ['name'])
 
@@ -1369,7 +1369,7 @@ def do_user_update_attributes(cs, args):
     """Updates a user's attributes on an instance.
     At least one optional argument must be provided.
     """
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     new_attrs = {}
     if args.new_name:
         new_attrs['name'] = args.new_name
@@ -1414,7 +1414,7 @@ def do_user_update_attributes(cs, args):
 @utils.service_type('database')
 def do_user_grant_access(cs, args):
     """Grants access to a database(s) for a user."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     cs.users.grant(instance, args.name,
                    args.databases, hostname=args.host)
 
@@ -1428,7 +1428,7 @@ def do_user_grant_access(cs, args):
 @utils.service_type('database')
 def do_user_revoke_access(cs, args):
     """Revokes access to a database for a user."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     cs.users.revoke(instance, args.name,
                     args.database, hostname=args.host)
 
