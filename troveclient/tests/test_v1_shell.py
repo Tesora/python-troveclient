@@ -473,6 +473,16 @@ class ShellTest(utils.TestCase):
         self.run_command(cmd)
         self.assert_called('POST', '/clusters/cls-1234')
 
+    def test_cluster_configuration_attach(self):
+        cmd = ('cluster-configuration-attach cls-1234 config-1234')
+        self.run_command(cmd)
+        self.assert_called('POST', '/clusters/cls-1234')
+
+    def test_cluster_configuration_detach(self):
+        cmd = ('cluster-configuration-detach cls-1234')
+        self.run_command(cmd)
+        self.assert_called('POST', '/clusters/cls-1234')
+
     def test_cluster_create_with_locality(self):
         cmd = ('cluster-create test-clstr2 redis 3.0 --locality=affinity '
                '--instance flavor=2,volume=1 '
