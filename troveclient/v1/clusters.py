@@ -19,6 +19,7 @@ from troveclient import common
 
 class Cluster(base.Resource):
     """A Cluster is an opaque cluster used to store Database clusters."""
+
     def __repr__(self):
         return "<Cluster: %s>" % self.name
 
@@ -128,10 +129,18 @@ class Clusters(base.ManagerWithFind):
         body = {"shrink": instances}
         return self._action(cluster, body)
 
+    def restart(self, cluster):
+        """Restart cluster nodes.
+
+        :param cluster:     The cluster to restart
+        """
+        body = {"restart": {}}
+        return self._action(cluster, body)
+
     def upgrade(self, cluster, datastore_version):
         """Upgrades a cluster to a new datastore version.
 
-        :param cluster:     The cluster to shrink
+        :param cluster:     The cluster to upgrade
         :param datastore_version:   Datastore version to which to upgrade
         """
         body = {"upgrade": {'datastore_version': datastore_version}}

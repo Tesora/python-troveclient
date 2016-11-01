@@ -460,6 +460,14 @@ def do_cluster_reset_status(cs, args):
 
 
 @utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
+@utils.service_type('database')
+def do_cluster_restart(cs, args):
+    """Restarts cluster nodes."""
+    cluster = _find_cluster(cs, args.cluster)
+    cs.clusters.restart(cluster)
+
+
+@utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
 @utils.arg('datastore_version',
            metavar='<datastore_version>',
            help='A datastore version name or ID.')

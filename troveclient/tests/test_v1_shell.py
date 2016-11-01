@@ -461,6 +461,11 @@ class ShellTest(utils.TestCase):
             exceptions.MissingArgs, "Missing option 'flavor'",
             self.run_command, cmd)
 
+    def test_cluster_restart(self):
+        cmd = ('cluster-restart cls-1234')
+        self.run_command(cmd)
+        self.assert_called('POST', '/clusters/cls-1234')
+
     def test_cluster_grow(self):
         cmd = ('cluster-grow cls-1234 '
                '--instance flavor=2,volume=2 '
