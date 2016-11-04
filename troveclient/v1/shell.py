@@ -478,6 +478,25 @@ def do_cluster_upgrade(cs, args):
     cs.clusters.upgrade(cluster, args.datastore_version)
 
 
+@utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
+@utils.arg('configuration',
+           metavar='<configuration>',
+           help='ID of the configuration group to attach to the cluster.')
+@utils.service_type('database')
+def do_cluster_configuration_attach(cs, args):
+    """Attaches a configuration group to a cluster."""
+    cluster = _find_cluster(cs, args.cluster)
+    cs.clusters.configuration_attach(cluster, args.configuration)
+
+
+@utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
+@utils.service_type('database')
+def do_cluster_configuration_detach(cs, args):
+    """Detaches configuration group from a cluster."""
+    cluster = _find_cluster(cs, args.cluster)
+    cs.clusters.configuration_detach(cluster)
+
+
 @utils.arg('instance',
            metavar='<instance>',
            type=str,
@@ -879,6 +898,11 @@ def _parse_properties(extended_properties, valid_property_names):
            choices=LOCALITY_DOMAIN,
            help='Locality policy to use when creating cluster. Choose '
                 'one of %(choices)s.')
+@utils.arg('--configuration',
+           metavar='<configuration>',
+           default=None,
+           type=str,
+           help='ID of the configuration group to attach to the cluster.')
 @utils.arg('--property',
            dest='extended_properties',
            default=None,
@@ -905,6 +929,7 @@ def do_cluster_create(cs, args):
                                  args.datastore_version,
                                  instances=instances,
                                  locality=args.locality,
+                                 configuration=args.configuration,
                                  extended_properties=properties)
     _print_cluster(cluster)
 

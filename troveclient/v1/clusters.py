@@ -38,7 +38,7 @@ class Clusters(base.ManagerWithFind):
     resource_class = Cluster
 
     def create(self, name, datastore, datastore_version, instances=None,
-               locality=None, extended_properties=None):
+               locality=None, configuration=None, extended_properties=None):
         """Create (boot) a new cluster."""
         body = {"cluster": {
             "name": name
@@ -52,6 +52,8 @@ class Clusters(base.ManagerWithFind):
             body["cluster"]["instances"] = instances
         if locality:
             body["cluster"]["locality"] = locality
+        if configuration:
+            body["cluster"]["configuration"] = configuration
         if extended_properties:
             body["cluster"]["extended_properties"] = extended_properties
 
@@ -144,6 +146,23 @@ class Clusters(base.ManagerWithFind):
         :param datastore_version:   Datastore version to which to upgrade
         """
         body = {"upgrade": {'datastore_version': datastore_version}}
+        return self._action(cluster, body)
+
+    def configuration_attach(self, cluster, configuration_id):
+        """Attaches a given configuration group to the cluster.
+
+        :param cluster:     The target cluster
+        :param configuration_id:   Attached configuration group id
+        """
+        body = {"configuration_attach": {'configuration_id': configuration_id}}
+        return self._action(cluster, body)
+
+    def configuration_detach(self, cluster):
+        """Detaches configuration group from the cluster.
+
+        :param cluster:     The target cluster
+        """
+        body = {"configuration_detach": {}}
         return self._action(cluster, body)
 
 
