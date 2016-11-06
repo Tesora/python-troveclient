@@ -148,3 +148,13 @@ class TestModules(testtools.TestCase):
         page_mock.assert_called_with("/modules/mod_1/instances",
                                      "instances", limit, marker,
                                      query_strings=expected_query)
+
+    def test_reapply(self):
+        resp = mock.Mock()
+        resp.status_code = 200
+        body = None
+        self.modules.api.client.put = mock.Mock(return_value=(resp, body))
+        self.modules.reapply(self.module_name)
+        self.modules.reapply(self.module)
+        resp.status_code = 500
+        self.assertRaises(Exception, self.modules.reapply, self.module_name)

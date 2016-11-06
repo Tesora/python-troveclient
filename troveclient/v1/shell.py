@@ -1966,8 +1966,7 @@ def do_module_show(cs, args):
                 'Admin only.')
 @utils.arg('--live_update', action='store_true', default=False,
            help='Allow module to be updated even if it is already applied '
-                'to a current instance or cluster. Automatically attempt to '
-                'reapply this module if the contents change.')
+                'to a current instance or cluster.')
 @utils.arg('--priority_apply', action='store_true', default=False,
            help='Sets a priority for applying the module. All priority '
                 'modules will be applied before non-priority ones. '
@@ -2045,8 +2044,7 @@ def do_module_create(cs, args):
            help='Allow all users to see this module. Admin only.')
 @utils.arg('--live_update', action='store_true', default=None,
            help='Allow module to be updated or deleted even if it is already '
-                'applied to a current instance or cluster. Automatically '
-                'attempt to reapply this module if the contents change.')
+                'applied to a current instance or cluster.')
 @utils.arg('--no_live_update', dest='live_update', action='store_false',
            default=None,
            help='Restricts a module from being updated or deleted if it is '
@@ -2087,6 +2085,32 @@ def do_module_update(cs, args):
         apply_order=args.apply_order, full_access=args.full_access,
         **datastore_args)
     _print_object(updated_module)
+
+
+@utils.arg('module', metavar='<module>', type=str,
+           help='Name or ID of the module.')
+@utils.arg('--md5', metavar='<md5>', type=str,
+           default=None,
+           help='Reapply the module only to instances applied '
+                'with the specific md5.')
+@utils.arg('--include_clustered', action="store_true", default=False,
+           help="Include instances that are part of a cluster "
+                "(default %(default)s).")
+@utils.arg('--batch_size', metavar='<batch_size>', type=int,
+           default=None,
+           help='Batch size to reapply before sleeping.')
+@utils.arg('--delay', metavar='<delay>', type=int,
+           default=None,
+           help='Time to sleep in seconds between applying batches.')
+@utils.arg('--force', action="store_true", default=False,
+           help="Force reapply even on modules already having the "
+                "current MD5")
+@utils.service_type('database')
+def do_module_reapply(cs, args):
+    """Reapply a module."""
+    module = _find_module(cs, args.module)
+    cs.modules.reapply(module, args.md5, args.include_clustered,
+                       args.batch_size, args.delay, args.force)
 
 
 @utils.arg('module', metavar='<module>',
