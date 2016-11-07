@@ -29,7 +29,7 @@ class Cluster(base.Resource):
 
     def force_delete(self):
         """Force delete the cluster"""
-        self.manager.reset_status(self)
+        self.manager.reset_status(self, force_delete=True)
         self.manager.delete(self)
 
 
@@ -83,12 +83,16 @@ class Clusters(base.ManagerWithFind):
         resp, body = self.api.client.delete(url)
         common.check_for_exceptions(resp, body, url)
 
-    def reset_status(self, cluster):
+    def reset_status(self, cluster, force_delete=False):
         """Reset the status of a cluster
 
         :param cluster: The cluster to reset
+        :param force_delete: Flag to indicate force delete operation
         """
-        body = {'reset-status': {}}
+        if force_delete:
+            body = {'reset-status': 'force_delete'}
+        else:
+            body = {'reset-status': {}}
         self._action(cluster, body)
 
     def _action(self, cluster, body):

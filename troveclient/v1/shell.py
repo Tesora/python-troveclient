@@ -418,7 +418,7 @@ def do_delete(cs, args):
 def do_force_delete(cs, args):
     """Force delete an instance."""
     instance = _find_instance(cs, args.instance)
-    cs.instances.reset_status(instance)
+    cs.instances.reset_status(instance, force_delete=True)
     cs.instances.delete(instance)
 
 
@@ -447,7 +447,7 @@ def do_cluster_delete(cs, args):
 def do_cluster_force_delete(cs, args):
     """Force delete a cluster"""
     cluster = _find_cluster(cs, args.cluster)
-    cs.clusters.reset_status(cluster)
+    cs.clusters.reset_status(cluster, force_delete=True)
     cs.clusters.delete(cluster)
 
 
