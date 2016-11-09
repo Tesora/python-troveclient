@@ -306,7 +306,7 @@ def do_list(cs, args):
     _print_instances(instances)
 
 
-def _print_instances(instances):
+def _print_instances(instances, is_admin=False):
     for instance in instances:
         setattr(instance, 'flavor_id', instance.flavor['id'])
         if hasattr(instance, 'volume'):
@@ -318,9 +318,12 @@ def _print_instances(instances):
                 setattr(instance, 'datastore_version',
                         instance.datastore['version'])
             setattr(instance, 'datastore', instance.datastore['type'])
-    utils.print_list(instances, ['id', 'name', 'datastore',
-                                 'datastore_version', 'status',
-                                 'flavor_id', 'size', 'region'])
+    fields = ['id', 'name', 'datastore',
+              'datastore_version', 'status',
+              'flavor_id', 'size', 'region']
+    if is_admin:
+        fields.append('tenant_id')
+    utils.print_list(instances, fields)
 
 
 @utils.arg('--limit', metavar='<limit>', type=int, default=None,
@@ -1917,25 +1920,7 @@ def do_module_list(cs, args):
                   'datastore_version', 'auto_apply',
                   'priority_apply', 'apply_order', 'is_admin',
                   'tenant', 'visible']
-    is_admin = False
-    try:
-        try:
-            if 'roles' in cs.client.auth.auth_ref['user']:
-                # Keystone V2
-                roles = cs.client.auth.auth_ref['user']['roles']
-            else:
-                # Keystone V3
-                roles = cs.client.auth.auth_ref['roles']
-        except TypeError:
-            # Try one more place
-            roles = cs.client.auth.auth_ref._data['access']['user']['roles']
-        role_names = [role['name'] for role in roles]
-        is_admin = 'admin' in role_names
-    except TypeError:
-        pass
-    except AttributeError:
-        pass
-    if not is_admin:
+    if not utils.is_admin(cs):
         field_list = field_list[:-2]
     utils.print_list(
         module_list, field_list,
@@ -2146,7 +2131,27 @@ def do_module_instances(cs, args):
     while not args.limit and wrapper.next:
         wrapper = cs.modules.instances(module, marker=wrapper.next)
         instance_list += wrapper.items
-    _print_instances(instance_list)
+    _print_instances(instance_list, utils.is_admin(cs))
+
+
+@utils.arg('module', metavar='<module>', type=str,
+           help='ID or name of the module.')
+@utils.arg('--include_clustered', action="store_true", default=False,
+           help="Include instances that are part of a cluster "
+                "(default %(default)s).")
+@utils.service_type('database')
+def do_module_instance_count(cs, args):
+    """Lists a count of the instances for each module md5"""
+    module = _find_module(cs, args.module)
+    count_list = cs.modules.instances(
+        module, include_clustered=args.include_clustered,
+        count_only=True)
+    field_list = ['module_name', 'min_updated_date', 'max_updated_date',
+                  'module_md5', 'current', 'instance_count']
+    utils.print_list(count_list, field_list,
+                     labels={'module_md5': 'Module MD5',
+                             'instance_count': 'Count',
+                             'module_id': 'Module ID'})
 
 
 @utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
