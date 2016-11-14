@@ -35,7 +35,7 @@ INSTANCE_HELP = _("Add an instance to the cluster.  Specify multiple "
                   "port-id=<port-uuid>>' "
                   "(where net-id=network_id, v4-fixed-ip=IPv4r_fixed_address, "
                   "port-id=port_id), availability_zone=<AZ_hint_for_Nova>, "
-                  "module=<module_name_or_id>.")
+                  "module=<module_name_or_id>, type=<type_of_cluster_node>.")
 NIC_ERROR = _("Invalid NIC argument: %s. Must specify either net-id or port-id"
               " but not both. Please refer to help.")
 NO_LOG_FOUND_ERROR = _("ERROR: No published '%(log_name)s' log was found for "
@@ -141,6 +141,24 @@ def _print_object(obj):
         del(obj._info['str_id'])
 
     utils.print_dict(obj._info)
+
+
+def _format_database_list(databases):
+    return ', '.join([db['name'] for db in databases])
+
+
+def _format_role_list(user_roles):
+    roles = []
+    for role in user_roles:
+        name = role.get('name')
+        if name:
+            db = role.get('database')
+            if db:
+                roles.append(':'.join([db, name]))
+            else:
+                roles.append(name)
+
+    return ', '.join(roles)
 
 
 def _find_instance_or_cluster(cs, instance_or_cluster):
@@ -298,7 +316,7 @@ def do_list(cs, args):
     _print_instances(instances)
 
 
-def _print_instances(instances):
+def _print_instances(instances, is_admin=False):
     for instance in instances:
         setattr(instance, 'flavor_id', instance.flavor['id'])
         if hasattr(instance, 'volume'):
@@ -310,9 +328,12 @@ def _print_instances(instances):
                 setattr(instance, 'datastore_version',
                         instance.datastore['version'])
             setattr(instance, 'datastore', instance.datastore['type'])
-    utils.print_list(instances, ['id', 'name', 'datastore',
-                                 'datastore_version', 'status',
-                                 'flavor_id', 'size', 'region'])
+    fields = ['id', 'name', 'datastore',
+              'datastore_version', 'status',
+              'flavor_id', 'size', 'region']
+    if is_admin:
+        fields.append('tenant_id')
+    utils.print_list(instances, fields)
 
 
 @utils.arg('--limit', metavar='<limit>', type=int, default=None,
@@ -411,7 +432,7 @@ def do_delete(cs, args):
 def do_force_delete(cs, args):
     """Force delete an instance."""
     instance = _find_instance(cs, args.instance)
-    cs.instances.reset_status(instance)
+    cs.instances.reset_status(instance, force_delete=True)
     cs.instances.delete(instance)
 
 
@@ -419,7 +440,10 @@ def do_force_delete(cs, args):
            help=_('ID or name of the instance.'))
 @utils.service_type('database')
 def do_reset_status(cs, args):
-    """Set the status to NONE."""
+    """Set the task status of an instance to NONE if the instance is in BUILD
+    or ERROR state. Resetting task status of an instance in BUILD state will
+    allow the instance to be deleted.
+    """
     instance = _find_instance(cs, args.instance)
     cs.instances.reset_status(instance=instance)
 
@@ -439,7 +463,7 @@ def do_cluster_delete(cs, args):
 def do_cluster_force_delete(cs, args):
     """Force delete a cluster"""
     cluster = _find_cluster(cs, args.cluster)
-    cs.clusters.reset_status(cluster)
+    cs.clusters.reset_status(cluster, force_delete=True)
     cs.clusters.delete(cluster)
 
 
@@ -450,6 +474,44 @@ def do_cluster_reset_status(cs, args):
     """Set the cluster task to NONE."""
     cluster = _find_cluster(cs, args.cluster)
     cs.clusters.reset_status(cluster)
+
+
+@utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
+@utils.service_type('database')
+def do_cluster_restart(cs, args):
+    """Restarts cluster nodes."""
+    cluster = _find_cluster(cs, args.cluster)
+    cs.clusters.restart(cluster)
+
+
+@utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
+@utils.arg('datastore_version',
+           metavar='<datastore_version>',
+           help='A datastore version name or ID.')
+@utils.service_type('database')
+def do_cluster_upgrade(cs, args):
+    """Upgrades a cluster to a new datastore version."""
+    cluster = _find_cluster(cs, args.cluster)
+    cs.clusters.upgrade(cluster, args.datastore_version)
+
+
+@utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
+@utils.arg('configuration',
+           metavar='<configuration>',
+           help='ID of the configuration group to attach to the cluster.')
+@utils.service_type('database')
+def do_cluster_configuration_attach(cs, args):
+    """Attaches a configuration group to a cluster."""
+    cluster = _find_cluster(cs, args.cluster)
+    cs.clusters.configuration_attach(cluster, args.configuration)
+
+
+@utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
+@utils.service_type('database')
+def do_cluster_configuration_detach(cs, args):
+    """Detaches configuration group from a cluster."""
+    cluster = _find_cluster(cs, args.cluster)
+    cs.clusters.configuration_detach(cluster)
 
 
 @utils.arg('instance',
@@ -793,12 +855,12 @@ def _parse_instance_options(cs, instance_options, for_grow=False):
         if modules:
             instance_info["modules"] = modules
 
-        if for_grow:
-            instance_type, instance_opts = _strip_option(
-                instance_opts, 'type', is_required=False)
-            if instance_type:
-                instance_info["type"] = instance_type
+        instance_type, instance_opts = _strip_option(
+            instance_opts, 'type', is_required=False, allow_multiple=True)
+        if instance_type:
+            instance_info["type"] = instance_type
 
+        if for_grow:
             related_to, instance_opts = _strip_option(
                 instance_opts, 'related_to', is_required=False)
             if instance_type:
@@ -822,26 +884,19 @@ def _parse_instance_options(cs, instance_options, for_grow=False):
     return instances
 
 
-def _parse_properties(extended_properties):
+def _parse_properties(extended_properties, valid_property_names):
     properties = {}
     if extended_properties:
         remaining_props = extended_properties
-        supported_properties = [
-            # Oracle RAC
-            'storage_type', 'database',
-            'votedisk_mount', 'registry_mount', 'database_mount',
-            'subnet', 'subnetpool', 'network', 'router', 'prefixlen',
-        ]
-
-        for supported_property in supported_properties:
+        for name in valid_property_names:
             try:
                 value, remaining_props = _strip_option(
-                    remaining_props, supported_property, is_required=False)
+                    remaining_props, name, is_required=False)
             except exceptions.ValidationError:
                 raise exceptions.ValidationError(
-                    "Invalid value for property " + supported_property)
+                    "Invalid value for property " + name)
             if value:
-                properties[supported_property] = value
+                properties[name] = value
 
         if remaining_props:
             raise exceptions.ValidationError(
@@ -868,6 +923,11 @@ def _parse_properties(extended_properties):
            choices=LOCALITY_DOMAIN,
            help=_('Locality policy to use when creating cluster. Choose '
                   'one of %(choices)s.'))
+@utils.arg('--configuration',
+           metavar='<configuration>',
+           default=None,
+           type=str,
+           help='ID of the configuration group to attach to the cluster.')
 @utils.arg('--property',
            dest='extended_properties',
            default=None,
@@ -880,13 +940,21 @@ def do_cluster_create(cs, args):
     if len(instances) == 0:
         raise exceptions.MissingArgs([INSTANCE_ARG_NAME])
 
-    properties = _parse_properties(args.extended_properties)
+    valid_properties = [
+        # Oracle RAC
+        'storage_type', 'database',
+        'votedisk_mount', 'registry_mount', 'database_mount',
+        'subnet', 'subnetpool', 'network', 'router', 'prefixlen'
+    ]
+
+    properties = _parse_properties(args.extended_properties, valid_properties)
 
     cluster = cs.clusters.create(args.name,
                                  args.datastore,
                                  args.datastore_version,
                                  instances=instances,
                                  locality=args.locality,
+                                 configuration=args.configuration,
                                  extended_properties=properties)
     _print_cluster(cluster)
 
@@ -1181,7 +1249,7 @@ def do_execution_delete(cs, args):
 @utils.service_type('database')
 def do_database_create(cs, args):
     """Creates a database on an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     database_dict = {'name': args.name}
     if args.collate:
         database_dict['collate'] = args.collate
@@ -1196,7 +1264,7 @@ def do_database_create(cs, args):
 @utils.service_type('database')
 def do_database_list(cs, args):
     """Lists available databases on an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     items = cs.databases.list(instance)
     databases = items
     while (items.next):
@@ -1212,7 +1280,7 @@ def do_database_list(cs, args):
 @utils.service_type('database')
 def do_database_delete(cs, args):
     """Deletes a database from an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     cs.databases.delete(instance, args.database)
 
 
@@ -1227,15 +1295,44 @@ def do_database_delete(cs, args):
 @utils.arg('--databases', metavar='<databases>',
            help=_('Optional list of databases.'),
            nargs="+", default=[])
+@utils.arg('--roles', metavar='<roles>',
+           help='Optional list of roles.',
+           nargs="+", default=[])
+@utils.arg('--property',
+           dest='extended_properties',
+           default=None,
+           metavar='<key=value>',
+           help="Any additional key/value properties as define by datastore.")
 @utils.service_type('database')
 def do_user_create(cs, args):
     """Creates a user on an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     databases = [{'name': value} for value in args.databases]
     user = {'name': args.name, 'password': args.password,
             'databases': databases}
+    if args.roles:
+        user['roles'] = [{'name': value} for value in args.roles]
     if args.host:
         user['host'] = args.host
+
+    valid_properties = [
+        # Couchbase
+        'bucket_ramsize', 'bucket_replica', 'enable_index_replica',
+        'bucket_eviction_policy', 'bucket_priority'
+    ]
+
+    props = _parse_properties(args.extended_properties, valid_properties)
+    if 'bucket_ramsize' in props:
+        user['bucket_ramsize'] = int(props.get('bucket_ramsize'))
+    if 'bucket_replica' in props:
+        user['bucket_replica'] = int(props.get('bucket_replica'))
+    if 'enable_index_replica' in props:
+        user['enable_index_replica'] = int(props.get('enable_index_replica'))
+    if 'bucket_eviction_policy' in props:
+        user['bucket_eviction_policy'] = props.get('bucket_eviction_policy')
+    if 'bucket_priority' in props:
+        user['bucket_priority'] = props.get('bucket_priority')
+
     cs.users.create(instance, [user])
 
 
@@ -1244,16 +1341,29 @@ def do_user_create(cs, args):
 @utils.service_type('database')
 def do_user_list(cs, args):
     """Lists the users for an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     items = cs.users.list(instance)
     users = items
     while (items.next):
         items = cs.users.list(instance, marker=items.next)
         users += items
+
+    fields = ['name']
+    if users:
+        user_fields = users[0].to_dict().keys()
+        fields.extend(sorted(set(user_fields) - set(fields)))
+
+    if 'databases' in fields:
+        for user in users:
+            user.databases = _format_database_list(user.databases)
+
     for user in users:
-        db_names = [db['name'] for db in user.databases]
-        user.databases = ', '.join(db_names)
-    utils.print_list(users, ['name', 'host', 'databases'])
+        if hasattr(user, 'roles'):
+            user.roles = _format_role_list(user.roles)
+        else:
+            user.roles = ''
+
+    utils.print_list(users, fields)
 
 
 @utils.arg('instance', metavar='<instance>',
@@ -1264,7 +1374,7 @@ def do_user_list(cs, args):
 @utils.service_type('database')
 def do_user_delete(cs, args):
     """Deletes a user from an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     cs.users.delete(instance, args.name, hostname=args.host)
 
 
@@ -1276,8 +1386,10 @@ def do_user_delete(cs, args):
 @utils.service_type('database')
 def do_user_show(cs, args):
     """Shows details of a user of an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     user = cs.users.get(instance, args.name, hostname=args.host)
+    if 'databases' in user.to_dict():
+        user._info['databases'] = _format_database_list(user.databases)
     _print_object(user)
 
 
@@ -1289,7 +1401,7 @@ def do_user_show(cs, args):
 @utils.service_type('database')
 def do_user_show_access(cs, args):
     """Shows access details of a user of an instance."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     access = cs.users.list_access(instance, args.name, hostname=args.host)
     utils.print_list(access, ['name'])
 
@@ -1305,12 +1417,17 @@ def do_user_show_access(cs, args):
            help=_('Optional new password of user.'))
 @utils.arg('--new_host', metavar='<new_host>', default=None,
            help=_('Optional new host of user.'))
+@utils.arg('--property',
+           dest='extended_properties',
+           default=None,
+           metavar='<key=value>',
+           help="Any additional key/value properties as define by datastore.")
 @utils.service_type('database')
 def do_user_update_attributes(cs, args):
     """Updates a user's attributes on an instance.
     At least one optional argument must be provided.
     """
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     new_attrs = {}
     if args.new_name:
         new_attrs['name'] = args.new_name
@@ -1318,6 +1435,28 @@ def do_user_update_attributes(cs, args):
         new_attrs['password'] = args.new_password
     if args.new_host:
         new_attrs['host'] = args.new_host
+
+    valid_properties = [
+        # Couchbase
+        'new_bucket_ramsize', 'new_bucket_replica',
+        'new_enable_index_replica', 'new_bucket_eviction_policy',
+        'new_bucket_priority',
+    ]
+
+    props = _parse_properties(args.extended_properties, valid_properties)
+    if 'new_bucket_ramsize' in props:
+        new_attrs['bucket_ramsize'] = int(props.get('new_bucket_ramsize'))
+    if 'new_bucket_replica' in props:
+        new_attrs['bucket_replica'] = int(props.get('new_bucket_replica'))
+    if 'new_enable_index_replica' in props:
+        new_attrs['enable_index_replica'] = int(props.get(
+            'new_enable_index_replica'))
+    if 'new_bucket_eviction_policy' in props:
+        new_attrs['bucket_eviction_policy'] = props.get(
+            'new_bucket_eviction_policy')
+    if 'new_bucket_priority' in props:
+        new_attrs['bucket_priority'] = props.get('new_bucket_priority')
+
     cs.users.update_attributes(instance, args.name,
                                newuserattr=new_attrs, hostname=args.host)
 
@@ -1333,7 +1472,7 @@ def do_user_update_attributes(cs, args):
 @utils.service_type('database')
 def do_user_grant_access(cs, args):
     """Grants access to a database(s) for a user."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     cs.users.grant(instance, args.name,
                    args.databases, hostname=args.host)
 
@@ -1347,7 +1486,7 @@ def do_user_grant_access(cs, args):
 @utils.service_type('database')
 def do_user_revoke_access(cs, args):
     """Revokes access to a database for a user."""
-    instance = _find_instance(cs, args.instance)
+    instance, _ = _find_instance_or_cluster(cs, args.instance)
     cs.users.revoke(instance, args.name,
                     args.database, hostname=args.host)
 
@@ -1815,19 +1954,7 @@ def do_module_list(cs, args):
                   'datastore_version', 'auto_apply',
                   'priority_apply', 'apply_order', 'is_admin',
                   'tenant', 'visible']
-    is_admin = False
-    try:
-        try:
-            roles = cs.client.auth.auth_ref['user']['roles']
-        except TypeError:
-            roles = cs.client.auth.auth_ref._data['access']['user']['roles']
-        role_names = [role['name'] for role in roles]
-        is_admin = 'admin' in role_names
-    except TypeError:
-        pass
-    except AttributeError:
-        pass
-    if not is_admin:
+    if not utils.is_admin(cs):
         field_list = field_list[:-2]
     utils.print_list(
         module_list, field_list,
@@ -1875,8 +2002,7 @@ def do_module_show(cs, args):
                   'Admin only.'))
 @utils.arg('--live_update', action='store_true', default=False,
            help=_('Allow module to be updated even if it is already applied '
-                  'to a current instance or cluster. Automatically attempt to '
-                  'reapply this module if the contents change.'))
+                  'to a current instance or cluster.'))
 @utils.arg('--priority_apply', action='store_true', default=False,
            help=_('Sets a priority for applying the module. All priority '
                   'modules will be applied before non-priority ones. '
@@ -1956,9 +2082,7 @@ def do_module_create(cs, args):
            help=_('Allow all users to see this module. Admin only.'))
 @utils.arg('--live_update', action='store_true', default=None,
            help=_('Allow module to be updated or deleted even if it is '
-                  'already applied to a current instance or cluster. '
-                  'Automatically attempt to reapply this module if the '
-                  'contents change.'))
+                  'already applied to a current instance or cluster. '))
 @utils.arg('--no_live_update', dest='live_update', action='store_false',
            default=None,
            help=_('Restricts a module from being updated or deleted if it is '
@@ -1999,6 +2123,32 @@ def do_module_update(cs, args):
         apply_order=args.apply_order, full_access=args.full_access,
         **datastore_args)
     _print_object(updated_module)
+
+
+@utils.arg('module', metavar='<module>', type=str,
+           help='Name or ID of the module.')
+@utils.arg('--md5', metavar='<md5>', type=str,
+           default=None,
+           help='Reapply the module only to instances applied '
+                'with the specific md5.')
+@utils.arg('--include_clustered', action="store_true", default=False,
+           help="Include instances that are part of a cluster "
+                "(default %(default)s).")
+@utils.arg('--batch_size', metavar='<batch_size>', type=int,
+           default=None,
+           help='Batch size to reapply before sleeping.')
+@utils.arg('--delay', metavar='<delay>', type=int,
+           default=None,
+           help='Time to sleep in seconds between applying batches.')
+@utils.arg('--force', action="store_true", default=False,
+           help="Force reapply even on modules already having the "
+                "current MD5")
+@utils.service_type('database')
+def do_module_reapply(cs, args):
+    """Reapply a module."""
+    module = _find_module(cs, args.module)
+    cs.modules.reapply(module, args.md5, args.include_clustered,
+                       args.batch_size, args.delay, args.force)
 
 
 @utils.arg('module', metavar='<module>',
@@ -2043,7 +2193,27 @@ def do_module_instances(cs, args):
     while not args.limit and items.next:
         items = cs.modules.instances(module, marker=items.next)
         instance_list += items
-    _print_instances(instance_list)
+    _print_instances(instance_list, utils.is_admin(cs))
+
+
+@utils.arg('module', metavar='<module>', type=str,
+           help='ID or name of the module.')
+@utils.arg('--include_clustered', action="store_true", default=False,
+           help="Include instances that are part of a cluster "
+                "(default %(default)s).")
+@utils.service_type('database')
+def do_module_instance_count(cs, args):
+    """Lists a count of the instances for each module md5"""
+    module = _find_module(cs, args.module)
+    count_list = cs.modules.instances(
+        module, include_clustered=args.include_clustered,
+        count_only=True)
+    field_list = ['module_name', 'min_updated_date', 'max_updated_date',
+                  'module_md5', 'current', 'instance_count']
+    utils.print_list(count_list, field_list,
+                     labels={'module_md5': 'Module MD5',
+                             'instance_count': 'Count',
+                             'module_id': 'Module ID'})
 
 
 @utils.arg('cluster', metavar='<cluster>',

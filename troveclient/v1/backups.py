@@ -143,7 +143,7 @@ class Backups(base.ManagerWithFind):
         return Schedule(self, sched_info, loaded=True)
 
     def schedule_create(self, instance, pattern, name,
-                        description=None, incremental=None,
+                        description=None, incremental=False,
                         mistral_client=None):
         """Create a new schedule to backup the given instance.
 
