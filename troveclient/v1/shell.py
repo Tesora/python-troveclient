@@ -630,7 +630,7 @@ def do_update(cs, args):
            type=str,
            default=None,
            help=argparse.SUPPRESS)
-#           help='Name of region in which to create the instance.')
+#           help=_('Name of region in which to create the instance.'))
 @utils.service_type('database')
 def do_create(cs, args):
     """Creates a new instance."""
@@ -1142,9 +1142,9 @@ def do_backup_create(cs, args):
 @utils.arg('backup', metavar='<backup>',
            help=_('Backup ID of the source backup.'),
            default=None)
-@utils.arg('--region', metavar='<region>', help=_('Region where the source '
-                                                  'backup resides.'),
-           default=None)
+@utils.arg('--region', metavar='<region>', default=None,
+           # help=_('Region where the source backup resides.'))
+           help=argparse.SUPPRESS)
 @utils.arg('--description', metavar='<description>',
            default=None,
            help=_('An optional description for the backup.'))
@@ -1814,26 +1814,27 @@ def do_configuration_patch(cs, args):
 @utils.arg('configuration_group', metavar='<configuration_group>',
            help=_('ID or name of the configuration group.'))
 @utils.arg('--limit', metavar='<limit>', type=int, default=None,
-           help='Limit the number of results displayed.')
+           help=_('Limit the number of results displayed.'))
 @utils.arg('--marker', metavar='<ID>', type=str, default=None,
-           help='Begin displaying the results for IDs greater than the '
-                'specified marker. When used with --limit, set this to '
-                'the last ID displayed in the previous run.')
+           help=_('Begin displaying the results for IDs greater than the '
+                  'specified marker. When used with --limit, set this to '
+                  'the last ID displayed in the previous run.'))
 @utils.service_type('database')
 def do_configuration_instances(cs, args):
     """Lists all instances associated with a configuration group."""
-    params = cs.configurations.instances(args.configuration_group,
+    configuration = _find_configuration(cs, args.configuration_group)
+    params = cs.configurations.instances(configuration,
                                          limit=args.limit,
                                          marker=args.marker)
     utils.print_list(params, ['id', 'name'])
 
 
 @utils.arg('--limit', metavar='<limit>', type=int, default=None,
-           help='Limit the number of results displayed.')
+           help=_('Limit the number of results displayed.'))
 @utils.arg('--marker', metavar='<ID>', type=str, default=None,
-           help='Begin displaying the results for IDs greater than the '
-                'specified marker. When used with --limit, set this to '
-                'the last ID displayed in the previous run.')
+           help=_('Begin displaying the results for IDs greater than the '
+                  'specified marker. When used with --limit, set this to '
+                  'the last ID displayed in the previous run.'))
 @utils.service_type('database')
 def do_configuration_list(cs, args):
     """Lists all configuration groups."""
