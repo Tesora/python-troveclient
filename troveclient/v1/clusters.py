@@ -146,7 +146,7 @@ class Clusters(base.ManagerWithFind):
     def upgrade(self, cluster, datastore_version):
         """Upgrades a cluster to a new datastore version.
 
-        :param cluster:     The cluster to upgrade
+        :param cluster:             The cluster to upgrade
         :param datastore_version:   Datastore version to which to upgrade
         """
         body = {"upgrade": {'datastore_version': datastore_version}}
