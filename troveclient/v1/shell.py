@@ -484,10 +484,11 @@ def do_cluster_restart(cs, args):
     cs.clusters.restart(cluster)
 
 
-@utils.arg('cluster', metavar='<cluster>', help='ID or name of the cluster.')
+@utils.arg('cluster', metavar='<cluster>',
+           help=_('ID or name of the cluster.'))
 @utils.arg('datastore_version',
            metavar='<datastore_version>',
-           help='A datastore version name or ID.')
+           help=_('A datastore version name or ID.'))
 @utils.service_type('database')
 def do_cluster_upgrade(cs, args):
     """Upgrades a cluster to a new datastore version."""
