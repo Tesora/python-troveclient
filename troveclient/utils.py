@@ -249,21 +249,9 @@ def find_resource(manager, name_or_id):
 def is_admin(cs):
     is_admin = False
     try:
-        try:
-            if 'roles' in cs.client.auth.auth_ref['user']:
-                # Keystone V2
-                roles = cs.client.auth.auth_ref['user']['roles']
-            else:
-                # Keystone V3
-                roles = cs.client.auth.auth_ref['roles']
-        except TypeError:
-            # Try one more place
-            roles = cs.client.auth.auth_ref._data['access']['user']['roles']
-        role_names = [role['name'] for role in roles]
-        is_admin = 'admin' in role_names
-    except TypeError:
-        pass
-    except AttributeError:
+        is_admin = 'admin' in cs.client.auth.auth_ref.role_names
+    except Exception:
+        print("Warning: Could not determine current role. Assuming non-admin")
         pass
 
     return is_admin
