@@ -2084,7 +2084,7 @@ def do_module_create(cs, args):
            help=_('Allow all users to see this module. Admin only.'))
 @utils.arg('--live_update', action='store_true', default=None,
            help=_('Allow module to be updated or deleted even if it is '
-                  'already applied to a current instance or cluster. '))
+                  'already applied to a current instance or cluster.'))
 @utils.arg('--no_live_update', dest='live_update', action='store_false',
            default=None,
            help=_('Restricts a module from being updated or deleted if it is '
@@ -2128,23 +2128,24 @@ def do_module_update(cs, args):
 
 
 @utils.arg('module', metavar='<module>', type=str,
-           help='Name or ID of the module.')
+           help=_('Name or ID of the module.'))
 @utils.arg('--md5', metavar='<md5>', type=str,
            default=None,
-           help='Reapply the module only to instances applied '
-                'with the specific md5.')
-@utils.arg('--include_clustered', action="store_true", default=False,
-           help="Include instances that are part of a cluster "
-                "(default %(default)s).")
+           help=_('Reapply the module only to instances applied '
+                  'with the specific md5.'))
+@utils.arg('--include_clustered', action='store_true', default=False,
+           help=_('Include instances that are part of a cluster '
+                  '(default %(default)s).'))
 @utils.arg('--batch_size', metavar='<batch_size>', type=int,
            default=None,
-           help='Batch size to reapply before sleeping.')
+           help=_('Number of instances to reapply the module to before '
+                  'sleeping.'))
 @utils.arg('--delay', metavar='<delay>', type=int,
            default=None,
-           help='Time to sleep in seconds between applying batches.')
-@utils.arg('--force', action="store_true", default=False,
-           help="Force reapply even on modules already having the "
-                "current MD5")
+           help=_('Time to sleep in seconds between applying batches.'))
+@utils.arg('--force', action='store_true', default=False,
+           help=_('Force reapply even on modules already having the '
+                  'current MD5'))
 @utils.service_type('database')
 def do_module_reapply(cs, args):
     """Reapply a module."""
@@ -2199,13 +2200,13 @@ def do_module_instances(cs, args):
 
 
 @utils.arg('module', metavar='<module>', type=str,
-           help='ID or name of the module.')
+           help=_('ID or name of the module.'))
 @utils.arg('--include_clustered', action="store_true", default=False,
-           help="Include instances that are part of a cluster "
-                "(default %(default)s).")
+           help=_("Include instances that are part of a cluster "
+                  "(default %(default)s)."))
 @utils.service_type('database')
 def do_module_instance_count(cs, args):
-    """Lists a count of the instances for each module md5"""
+    """Lists a count of the instances for each module md5."""
     module = _find_module(cs, args.module)
     count_list = cs.modules.instances(
         module, include_clustered=args.include_clustered,
